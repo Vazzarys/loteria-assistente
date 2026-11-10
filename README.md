@@ -16,7 +16,27 @@ O painel consulta os resultados diretamente no domínio da Caixa, com estimativa
 
 A conferência histórica está disponível em Montar jogo e Favoritos. Mostra contagens exatas de 0 até o total de dezenas sorteadas, concursos correspondentes, datas, dezenas coincidentes e consulta à fonte. A Dupla Sena compara cada sorteio individualmente; a Lotomania inclui zero coincidências. Jogos ampliados usam contenção das dezenas sorteadas, sem chamar esse resultado de combinação idêntica. As listas exibem 40 registros por vez, ordenados por coincidências e número do concurso.
 
-O módulo Sugestões prioriza o prêmio principal e usa cobertura combinatória exata do lote, conforme descrito abaixo. Restauração de backup e conferência financeira de uma aposta no concurso escolhido ainda não foram integradas. Nenhum resultado fictício é usado no app. Os arquivos em `tests/fixtures` são respostas reais fixadas somente para testes; não abastecem o painel.
+O módulo Sugestões prioriza o prêmio principal e usa cobertura combinatória exata do lote, conforme descrito abaixo. Restauração de backup ainda não foi integrada. A conferência por concurso está disponível em Minhas apostas, sem alterar os valores recebidos informados manualmente. Nenhum resultado fictício é usado no app. Os arquivos em `tests/fixtures` são respostas reais fixadas somente para testes; não abastecem o painel.
+
+## Conferência automática de apostas
+
+Minhas apostas consulta cada concurso registrado ao entrar e após sincronizar os dados, e verifica novamente a cada cinco minutos com o aplicativo aberto e visível. Também permite atualização manual, geral por modalidade filtrada ou individual em Ver conferência. Não há execução no servidor quando o app está fechado, nem alterações de esquema ou novas permissões no Supabase.
+
+As consultas são agrupadas por modalidade/concurso, compartilham uma consulta ao último resultado por modalidade e usam até três grupos simultâneos. Concursos superiores ao último publicado ficam aguardando resultado. Falhas de rede, concursos trocados, datas inválidas, apostas posteriores ao sorteio e rateios incompletos não são apresentados como ausência de prêmio. A Mega da Virada exige identificação especial, incluindo a relação de concursos antigos conhecida pelo módulo histórico. Na Dupla Sena os dois sorteios são calculados e exibidos separadamente.
+
+Para apostas ampliadas das modalidades combinatórias, com `n` dezenas marcadas, `h` coincidências, `d` dezenas sorteadas e faixa de `k` acertos, a quantidade de prêmios é `C(h,k) × C(n-h,d-k)`. Soma todas as faixas premiadas da aposta e, na Dupla Sena, ambos os sorteios. Na Lotomania não há decomposição: conta um prêmio na faixa exata, incluindo zero acertos. Valores unitários vêm do rateio oficial do concurso, sem usar estimativas ou percentuais atuais de distribuição para reconstruir prêmios antigos. As multiplicidades foram conferidas contra as tabelas oficiais:
+
+- https://loterias.caixa.gov.br/Paginas/Mega-Sena.aspx
+- https://loterias.caixa.gov.br/Paginas/Lotofacil.aspx
+- https://loterias.caixa.gov.br/Paginas/Quina.aspx
+- https://loterias.caixa.gov.br/Paginas/Dupla-Sena.aspx
+- https://loterias.caixa.gov.br/Paginas/Lotomania.aspx
+
+O cálculo usa centavos e inteiros; a soma não é liberada se uma faixa encontrada não tiver ganhadores e valor positivo confirmados na fonte. Uma aposta sem faixa premiada tem zero calculado; consulta indisponível permanece sem total. A conferência considera uma aposta individual com as dezenas cadastradas e depende da correspondência com o comprovante real.
+
+Prêmio calculado e valor recebido informado são campos distintos na interface. A conferência não altera `prize_received`, não declara pagamento ou resgate, e não soma valores calculados ao resumo financeiro pessoal. Quando há divergência com o valor recebido preenchido, exibe um aviso. Os resultados calculados ficam somente em memória e são consultados novamente ao entrar em outro dispositivo. Mudanças de modalidade, concurso, data ou dezenas invalidam a conferência anterior; logout descarta os resultados e impede a publicação de consultas ainda em andamento.
+
+A restrição semanal continua valendo no painel público de premiações. Consultar o concurso de uma aposta pessoal antiga é uma ação separada e não reinsere esse rateio no painel semanal.
 
 ## Sugestões: objetivo e limites matemáticos
 

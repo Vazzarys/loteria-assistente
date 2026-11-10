@@ -4,6 +4,7 @@ import { SOURCE, RESULT_GAMES, loadGameWeek, weeklyRecords, latestWeeklyWinner, 
 import { loadHistorical, checkCombination, baseGame } from './history.js';
 import { SIMPLE_PRICES, PRICE_CHECKED, PRICE_SOURCES, batchLimit, planBudget, generatePortfolio, historicalAudit, oddsLabel } from './suggestions.js';
 import { analyzeStatistics } from './statistics.js';
+import { betSignature, checkRegisteredBets } from './settlements.js';
 
 const $ = s => document.querySelector(s);
 const state = { user: null, favorites: [], bets: [], settings: { monthly_budget: 0, theme: 'system' }, page: 'overview', game: 'megasena', numbers: [], quantity: 6, filter: '', loaded: false };
@@ -13,6 +14,7 @@ const resultsState = { entries: readCache(), errors: {}, busy: false, initialize
 const historyState = { game: null, numbers: [], data: null, result: null, controller: null, run: 0, busy: false, progress: '', error: null, scope: 'all', filter: '2+', limit: 40 };
 const suggestionState = { game:'megasena', budget:'', price:'6.00', contest:'', busy:false, progress:'', error:null, result:null, controller:null, run:0 };
 const statisticsState = { game:'megasena',limit:0,scope:'all',draw:'all',order:'desc',data:null,busy:false,error:null,controller:null,run:0 };
+const betChecks = { entries:new Map(), busy:false, run:0, selected:null };
 const formatNumber = n => String(n).padStart(2, '0');
 const gameStyle = game => `--game:${GAMES[game].color};--game-soft:${GAMES[game].soft}`;
 const balls = (game, numbers) => `<div class="balls" style="${gameStyle(game)}">${numbers.map(n => `<span class="ball">${formatNumber(n)}</span>`).join('')}</div>`;
@@ -119,6 +121,7 @@ setInterval(() => {
     if (state.page === 'overview' && state.loaded) render();
     if ($('#results-dialog').open) renderResultsDialog();
   }
+  if (!$('#editor').open) void refreshBetChecks();
   if (Date.now() - resultsState.lastAttempt >= 300000 && !$('#editor').open) void refreshResults();
 }, 60000);
 function closeHistory() {
@@ -277,12 +280,60 @@ function favorites() {
   const rows = state.favorites.filter(f => !state.filter || f.game === state.filter);
   return filterHeader('Suas combinações favoritas', rows.length) + (rows.length ? `<div class="record-list">${rows.map(f => `<article class="record" style="${gameStyle(f.game)}"><div class="record-heading"><div><h3>${esc(f.name || GAMES[f.game].name)}</h3><span class="muted">${GAMES[f.game].name} • salvo em ${dateLabel(localDate(new Date(f.created_at)))}</span></div><span class="game-name" aria-hidden="true">♡</span></div>${balls(f.game, f.numbers)}${f.notes ? `<p class="record-notes">${esc(f.notes)}</p>` : ''}<div class="record-actions"><button class="small-button" data-check-favorite="${f.id}">Conferir</button><button class="small-button" data-use="${f.id}">Usar combinação</button><button class="small-button" data-bet-favorite="${f.id}">Registrar aposta</button><button class="small-button" data-edit-favorite="${f.id}">Editar nome</button><button class="small-button" data-delete-favorite="${f.id}">Excluir</button></div></article>`).join('')}</div>` : empty('Seus favoritos começam aqui.', 'Salve uma combinação para encontrá-la novamente no computador e no celular.'));
 }
+function checkedBet(bet) {
+  const entry=betChecks.entries.get(bet.id);
+  return entry?.signature===betSignature(bet)?entry:null;
+}
+function betCheckLabel(entry) {
+  if(!entry)return 'Ainda não conferida';
+  return {pending:'Aguardando resultado',error:'Conferência indisponível',rateio:'Rateio não confirmado',checked:entry.hasPrize?'Faixa premiada encontrada':'Sem premiação'}[entry.status];
+}
+function betCheckSummary(bet) {
+  const entry=checkedBet(bet);
+  return `<div class="bet-check-summary ${entry?.status==='checked'&&entry.hasPrize?'awarded':''}"><div><strong>${betCheckLabel(entry)}</strong>${entry?.draws?`<p>${entry.draws.map(d=>`${bet.game==='duplasena'?d.draw+'º sorteio: ':''}${d.hits} acerto${d.hits===1?'':'s'}`).join(' · ')}</p>`:''}${entry?.status==='error'?`<p class="error">${esc(entry.error)}</p>`:''}${entry?.status==='pending'?'<p>O concurso está além do último resultado publicado pela Caixa.</p>':''}</div><div><span class="muted">Prêmio calculado</span><strong>${entry?.totalCents!=null?money(entry.totalCents/100):'—'}</strong></div></div>`;
+}
 function bets() {
   const rows = state.bets.filter(b => !state.filter || b.game === state.filter);
-  return filterHeader('Seu histórico de apostas', rows.length) + '<div class="notice">Registre somente jogos que você já apostou. A conferência automática será integrada na próxima etapa. Os prêmios abaixo são informados manualmente.</div>' + (rows.length ? `<div class="record-list">${rows.map(b => `<article class="record" style="${gameStyle(b.game)}"><div class="record-heading"><div><h3>${GAMES[b.game].name} · Concurso ${b.contest}</h3><span class="muted">Aposta em ${dateLabel(b.bet_date)}</span></div><span class="pill">${b.prize_received === null ? 'SEM PRÊMIO INFORMADO' : 'VALOR INFORMADO'}</span></div>${balls(b.game, b.numbers)}<div class="prize-data"><div><span class="muted">Valor apostado</span><strong>${money(b.cost)}</strong></div><div><span class="muted">Prêmio informado</span><strong>${b.prize_received === null ? '—' : money(b.prize_received)}</strong></div></div>${b.notes ? `<p class="record-notes" style="margin-top:14px">${esc(b.notes)}</p>` : ''}<div class="record-actions"><button class="small-button" data-edit-bet="${b.id}">Editar registro</button><button class="small-button" data-delete-bet="${b.id}">Excluir</button></div></article>`).join('')}</div>` : empty('Suas apostas, sem perder o controle.', 'Monte um jogo ou abra um favorito e selecione “Registrar aposta” depois de jogar na Caixa.'));
+  return filterHeader('Seu histórico de apostas', rows.length) + `<div class="notice">Conferência automática ao entrar e a cada cinco minutos com o app aberto e visível. O prêmio calculado usa o rateio do concurso; o valor recebido continua sendo informado por você.</div><div class="results-toolbar"><p class="muted" role="status">${betChecks.busy?'Conferindo apostas na Caixa…':'A conferência não confirma pagamento nem resgate.'}</p><button class="small-button" data-action="check-bets" ${betChecks.busy||!rows.length?'disabled':''}>↻ Conferir apostas${state.filter?' desta modalidade':''}</button></div>` + (rows.length ? `<div class="record-list">${rows.map(b => `<article class="record" style="${gameStyle(b.game)}"><div class="record-heading"><div><h3>${GAMES[b.game].name} · Concurso ${b.contest}</h3><span class="muted">Aposta em ${dateLabel(b.bet_date)}</span></div><span class="pill">${b.prize_received === null ? 'SEM VALOR RECEBIDO INFORMADO' : 'VALOR RECEBIDO INFORMADO'}</span></div>${balls(b.game, b.numbers)}${betCheckSummary(b)}<div class="prize-data"><div><span class="muted">Valor apostado</span><strong>${money(b.cost)}</strong></div><div><span class="muted">Recebido · informado por você</span><strong>${b.prize_received === null ? '—' : money(b.prize_received)}</strong></div></div>${b.notes ? `<p class="record-notes" style="margin-top:14px">${esc(b.notes)}</p>` : ''}<div class="record-actions"><button class="small-button" data-check-bet="${b.id}">Ver conferência</button><button class="small-button" data-edit-bet="${b.id}">Editar registro</button><button class="small-button" data-delete-bet="${b.id}">Excluir</button></div></article>`).join('')}</div>` : empty('Suas apostas, sem perder o controle.', 'Monte um jogo ou abra um favorito e selecione “Registrar aposta” depois de jogar na Caixa.'));
 }
+async function refreshBetChecks(force=false, id=null) {
+  if(!state.user||betChecks.busy)return;
+  const snapshot=state.bets.filter(b=>(!id||b.id===id)&&(!force||id||!state.filter||b.game===state.filter)).filter(b=>force||!checkedBet(b)||Date.now()-Date.parse(checkedBet(b).checkedAt)>=300000);
+  if(!snapshot.length)return;
+  const run=++betChecks.run;
+  betChecks.busy=true;updateBetCheckViews();
+  try {
+    await checkRegisteredBets(snapshot,{isCancelled:()=>run!==betChecks.run||!state.user,onResult:(id,entry)=>{
+      if(run!==betChecks.run||!state.user)return;
+      const current=state.bets.find(b=>b.id===id);
+      if(current&&betSignature(current)===entry.signature)betChecks.entries.set(id,entry);
+      updateBetCheckViews();
+    }});
+  }finally{
+    if(run===betChecks.run){betChecks.busy=false;updateBetCheckViews();if(state.bets.some(b=>!checkedBet(b)))void refreshBetChecks();}
+  }
+}
+function updateBetCheckViews() {
+  if(state.user&&state.loaded&&state.page==='bets'&&!$('#editor').open)render();
+  if($('#bet-check-dialog').open)renderBetCheck();
+}
+function openBetCheck(id) {
+  if(!state.bets.some(b=>b.id===id))return;
+  betChecks.selected=id;
+  if(!$('#bet-check-dialog').open)$('#bet-check-dialog').showModal();
+  renderBetCheck();void refreshBetChecks(false,id);
+}
+function renderBetCheck() {
+  const b=state.bets.find(b=>b.id===betChecks.selected);
+  if(!b){$('#bet-check-dialog').close();return;}
+  const e=checkedBet(b),game=baseGame(b.game);
+  $('#bet-check-title').textContent=`${GAMES[b.game].name} · Concurso ${b.contest}`;
+  $('#bet-check-content').innerHTML=`<p class="fine">Sua aposta registrada</p>${balls(b.game,b.numbers)}${betCheckSummary(b)}${!e&&betChecks.busy?'<p role="status">Consultando resultado oficial…</p>':''}${e?.draws?e.draws.map(d=>`<section class="bet-check-draw" style="${gameStyle(b.game)}"><div class="section-heading"><h3>${b.game==='duplasena'?d.draw+'º sorteio':'Resultado oficial'}</h3><span class="muted">${dateLabel(e.date)}</span></div><div class="history-draw">${d.numbers.map(n=>`<span class="ball ${d.common.includes(n)?'matched':'unmatched'}">${formatNumber(n)}</span>`).join('')}</div><p><strong>${d.hits} acertos</strong>${d.common.length?': '+d.common.map(formatNumber).join(' · '):''}</p>${d.awards.length?`<div class="table-scroll"><table class="rateio-table"><thead><tr><th>Faixa</th><th>Prêmios</th><th>Unitário</th><th>Subtotal</th></tr></thead><tbody>${d.awards.map(a=>`<tr><td>${a.hits} acertos</td><td>${a.count.toLocaleString('pt-BR')}</td><td>${a.unitCents===null?'Não confirmado':money(a.unitCents/100)}</td><td>${a.totalCents===null?'—':money(a.totalCents/100)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="fine">Nenhuma faixa premiada neste sorteio.</p>'}</section>`).join(''):''}<div class="notice">${b.game==='lotomania'?'A Lotomania também premia zero acertos.':'Apostas com mais dezenas podem receber vários prêmios. Cada combinação simples premiada é contabilizada uma vez por faixa e sorteio.'} O cálculo considera uma aposta individual com as dezenas registradas; confira os dados com seu comprovante.</div>${e?.status==='rateio'?'<p class="error">As dezenas correspondem a uma faixa, mas a fonte não confirmou ganhadores e valor positivo em todas as faixas encontradas. O total permanece indisponível.</p>':''}${e?.totalCents!=null&&b.prize_received!==null&&Math.round(Number(b.prize_received)*100)!==e.totalCents?'<p class="notice">O valor recebido informado difere do prêmio calculado. Seu registro foi mantido; confira o comprovante e o rateio.</p>':''}<p class="fine">${e?'Consulta: '+timestampLabel(e.checkedAt)+'. ':''}O prêmio calculado não é somado aos valores recebidos do painel. Consultas antigas de apostas pessoais não alteram o painel de premiações da semana.</p><a class="official-link" href="${SOURCE+game+'/'+b.contest}" target="_blank" rel="noopener noreferrer">Consultar este concurso na Caixa ↗</a><div class="record-actions"><button class="secondary" data-refresh-bet="${b.id}" ${betChecks.busy?'disabled':''}>${betChecks.busy?'Conferindo…':'↻ Atualizar conferência'}</button></div>`;
+}
+$('#close-bet-check').addEventListener('click',()=>$('#bet-check-dialog').close());
+
 function settings() {
-  return `<div class="settings-grid"><section class="panel"><h2>Seu planejamento</h2><p>Defina um limite mensal para acompanhar seus gastos.</p><form id="settings-form"><label>Orçamento mensal (R$)<input name="budget" type="number" min="0" max="9999999999.99" step="0.01" value="${state.settings.monthly_budget}" required></label><label>Aparência<select name="theme"><option value="system" ${state.settings.theme === 'system' ? 'selected' : ''}>Acompanhar o dispositivo</option><option value="light" ${state.settings.theme === 'light' ? 'selected' : ''}>Clara</option><option value="dark" ${state.settings.theme === 'dark' ? 'selected' : ''}>Escura</option></select></label><button type="submit" class="primary">Salvar preferências</button></form></section><section class="panel"><h2>Seus dados, com você.</h2><p>Favoritos e apostas ficam vinculados à sua conta. Exporte uma cópia em JSON quando quiser.</p><button class="secondary" data-action="export">↓ Exportar meus registros</button><hr style="border:0;border-top:1px solid var(--border);margin:25px 0"><span class="eyebrow">CONTA CONECTADA</span><p class="account-address" style="margin-top:12px">${esc(state.user.email)}</p><button class="secondary" data-action="logout">Sair da conta ↗</button><p class="fine" style="margin-top:20px">Versão 0.5 • Estatísticas, sugestões por cobertura e resultados oficiais.</p></section></div>`;
+  return `<div class="settings-grid"><section class="panel"><h2>Seu planejamento</h2><p>Defina um limite mensal para acompanhar seus gastos.</p><form id="settings-form"><label>Orçamento mensal (R$)<input name="budget" type="number" min="0" max="9999999999.99" step="0.01" value="${state.settings.monthly_budget}" required></label><label>Aparência<select name="theme"><option value="system" ${state.settings.theme === 'system' ? 'selected' : ''}>Acompanhar o dispositivo</option><option value="light" ${state.settings.theme === 'light' ? 'selected' : ''}>Clara</option><option value="dark" ${state.settings.theme === 'dark' ? 'selected' : ''}>Escura</option></select></label><button type="submit" class="primary">Salvar preferências</button></form></section><section class="panel"><h2>Seus dados, com você.</h2><p>Favoritos e apostas ficam vinculados à sua conta. Exporte uma cópia em JSON quando quiser.</p><button class="secondary" data-action="export">↓ Exportar meus registros</button><hr style="border:0;border-top:1px solid var(--border);margin:25px 0"><span class="eyebrow">CONTA CONECTADA</span><p class="account-address" style="margin-top:12px">${esc(state.user.email)}</p><button class="secondary" data-action="logout">Sair da conta ↗</button><p class="fine" style="margin-top:20px">Versão 0.6 • Conferência de apostas e rateios oficiais.</p></section></div>`;
 }
 
 async function readAll(table) {
@@ -309,6 +360,7 @@ async function loadData() {
     $('#sync-status').textContent = '● Sincronizado';
     render();
     if (!resultsState.initialized) void refreshResults();
+    void refreshBetChecks();
   } catch (error) {
     if (generation !== loadGeneration || !state.user) return;
     $('#sync-status').textContent = 'Falha na sincronização';
@@ -319,6 +371,7 @@ async function loadData() {
 async function activateSession(session) {
   if (session?.user?.id !== CONFIG.ownerId) {
     if (session) { await client.auth.signOut({ scope: 'local' }); $('#login-error').textContent = 'Esta conta não está autorizada a usar este aplicativo.'; }
+    betChecks.run++; betChecks.busy=false; betChecks.entries.clear(); betChecks.selected=null; $('#bet-check-dialog').close();
     state.user = null; state.loaded = false; state.bets = []; state.favorites = []; state.numbers = []; state.page = 'overview'; state.settings = { monthly_budget: 0, theme: 'system' }; loadGeneration++;
     $('#app').hidden = true; $('#content').replaceChildren(); $('#login-screen').hidden = false; $('#editor').close(); $('#results-dialog').close(); closeHistory(); closeStatistics(); cancelSuggestions(false); suggestionState.result=null; suggestionState.budget=''; $('#password').value = ''; applyTheme();
     return;
@@ -453,10 +506,12 @@ document.addEventListener('click', event => {
   if (d.hit !== undefined) { historyState.filter = d.hit; historyState.limit = 40; renderHistory(); }
   if (d.betFavorite) useFavorite(d.betFavorite, true);
   if (d.editFavorite) openEditor('favorite', state.favorites.find(f => f.id === d.editFavorite));
+  if (d.checkBet) openBetCheck(d.checkBet);
+  if (d.refreshBet) void refreshBetChecks(true,d.refreshBet);
   if (d.editBet) openEditor('bet', state.bets.find(b => b.id === d.editBet));
   if (d.deleteFavorite) void deleteRecord('favorites', d.deleteFavorite);
   if (d.deleteBet) void deleteRecord('bets', d.deleteBet);
-  const actions = { 'refresh-statistics': () => void loadStatistics(), 'cancel-suggestions': () => cancelSuggestions(), 'export-suggestions': exportSuggestions, 'check-history': () => openHistory(state.game, state.numbers), 'refresh-history': () => void runHistory(), 'more-history': () => { historyState.limit += 40; renderHistory(); }, generate: () => { state.numbers = generateNumbers(state.game, state.quantity); render(); }, clear: () => { state.numbers = []; render(); }, favorite: () => openEditor('favorite'), bet: () => openEditor('bet'), export: exportRecords, 'refresh-results': () => void refreshResults(), logout: () => void logout(), reload: () => void loadData() };
+  const actions = { 'check-bets': () => void refreshBetChecks(true), 'refresh-statistics': () => void loadStatistics(), 'cancel-suggestions': () => cancelSuggestions(), 'export-suggestions': exportSuggestions, 'check-history': () => openHistory(state.game, state.numbers), 'refresh-history': () => void runHistory(), 'more-history': () => { historyState.limit += 40; renderHistory(); }, generate: () => { state.numbers = generateNumbers(state.game, state.quantity); render(); }, clear: () => { state.numbers = []; render(); }, favorite: () => openEditor('favorite'), bet: () => openEditor('bet'), export: exportRecords, 'refresh-results': () => void refreshResults(), logout: () => void logout(), reload: () => void loadData() };
   if (d.action) actions[d.action]?.();
 });
 document.addEventListener('input',event=>{const key=event.target.dataset?.suggestInput;if(['budget','price','contest'].includes(key)){suggestionState[key]=event.target.value;suggestionState.result=null;suggestionState.error=null;$('#suggestions-output')?.replaceChildren();if($('#suggestion-error'))$('#suggestion-error').textContent='';}});

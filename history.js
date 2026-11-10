@@ -6,6 +6,8 @@ const memory = new Map();
 export const baseGame = game => game === 'megadavirada' ? 'megasena' : game;
 const VIRADA_IDS = new Set([1140,1245,1350,1455,1560,1665,1775,1890,2000,2110,2220,2330,2440,2550,2670,2810,2955,3100]);
 
+export const isViradaContest = record => record?.special === true || VIRADA_IDS.has(record?.contest);
+
 function abortIfNeeded(signal) { if (signal?.aborted) throw new DOMException('Consulta cancelada', 'AbortError'); }
 function validDate(date) {
   if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
