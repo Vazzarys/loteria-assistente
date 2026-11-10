@@ -2,7 +2,7 @@
 
 Aplicativo pessoal e responsivo, hospedável no GitHub Pages, com autenticação e registros no Supabase.
 
-## Etapa atual: registros pessoais, painel semanal, conferência e sugestões
+## Etapa atual: registros pessoais, painel semanal, conferência, sugestões e estatísticas
 
 - Login por e-mail e senha do usuário já criado no Supabase.
 - Seleção manual e geração aleatória de combinações para Mega-Sena, Mega da Virada, Lotofácil, Quina, Lotomania e Dupla Sena.
@@ -19,6 +19,10 @@ A conferência histórica está disponível em Montar jogo e Favoritos. Mostra c
 O módulo Sugestões prioriza o prêmio principal e usa cobertura combinatória exata do lote, conforme descrito abaixo. Restauração de backup e conferência financeira de uma aposta no concurso escolhido ainda não foram integradas. Nenhum resultado fictício é usado no app. Os arquivos em `tests/fixtures` são respostas reais fixadas somente para testes; não abastecem o painel.
 
 ## Sugestões: objetivo e limites matemáticos
+
+O botão Estatísticas e frequências em Sugestões (também disponível em Montar jogo) abre o ranking completo por modalidade. Usa o histórico inteiro por padrão e permite recortes dos últimos 50, 100 ou 500 concursos, ordenação por mais/menos frequentes ou número, as dez duplas mais observadas e a distribuição de pares/ímpares. Na Mega da Virada, o filtro inicial usa somente as edições especiais identificadas; é possível trocar para toda a Mega-Sena. Na Dupla Sena, os sorteios podem ser analisados juntos ou separados. O número 00 da Lotomania é par.
+
+Os percentuais usam como denominador os sorteios analisados, não a quantidade total de bolas nem a de concursos quando houver dois sorteios. A referência uniforme por dezena é `d/N`, e por dupla é `d(d-1)/(N(N-1))`. Os períodos recentes seguem o número do concurso. São análises descritivas, sem teste de viés ou significância e sem alterar os critérios de geração. Uma diferença na frequência observada não é apresentada como previsão. Recortes sem dados e bases parciais/desatualizadas são indicados.
 
 O módulo usa apostas simples de menor quantidade de dezenas para dar flexibilidade à distribuição do lote. O usuário informa orçamento, preço por aposta e concurso futuro. Os preços padrão foram conferidos nas páginas oficiais da Caixa em 10/11/2026; são editáveis e não são atualizados automaticamente pela API de resultados. O cálculo de custo usa o preço informado. O orçamento é calculado em centavos inteiros e limitado pelo saldo mensal dos registros, se houver orçamento mensal configurado. Sugestões não são apostas feitas nem reservas de saldo.
 
