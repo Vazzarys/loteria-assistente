@@ -1,10 +1,21 @@
 import { GAMES, localDate, weekBounds } from './core.js';
+import { MEGA_VIRADA_ANNOUNCEMENT } from './special-announcements.js';
 
 export const SOURCE = 'https://servicebus2.caixa.gov.br/portaldeloterias/api/';
 export const RESULT_GAMES = ['megasena', 'lotofacil', 'quina', 'lotomania', 'duplasena'];
 const TYPES = { megasena: 'MEGA_SENA', lotofacil: 'LOTOFACIL', quina: 'QUINA', lotomania: 'LOTOMANIA', duplasena: 'DUPLA_SENA' };
 const HITS = { megasena: [6, 5, 4], lotofacil: [15, 14, 13, 12, 11], quina: [5, 4, 3, 2], lotomania: [20, 19, 18, 17, 16, 15, 0], duplasena: [6, 5, 4, 3, 6, 5, 4, 3] };
 const CACHE_KEY = 'loteria-resultados-v1';
+export function specialEstimate(entry, now = new Date()) {
+  const announcement = MEGA_VIRADA_ANNOUNCEMENT;
+  const today = localDate(now);
+  if (today < announcement.published || today > announcement.drawDate || entry?.latest?.contest >= announcement.contest) return null;
+  const next = entry?.latest?.next;
+  if (next?.contest === announcement.contest && next?.date === announcement.drawDate && Number.isFinite(next.estimate) && next.estimate > 0 && !entry.stale) {
+    return { ...announcement, estimate: next.estimate, qualifier: '', kind: 'api', source: SOURCE + 'megasena', consultedAt: entry.fetchedAt };
+  }
+  return { ...announcement, kind: 'announcement' };
+}
 function positiveInt(value) { return Number.isInteger(value) && value > 0; }
 function nonnegative(value) { return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null; }
 export function parseCaixaDate(value) {

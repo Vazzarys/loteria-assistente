@@ -12,7 +12,7 @@ Aplicativo pessoal e responsivo, hospedável no GitHub Pages, com autenticação
 - Orçamento mensal, temas claro/escuro e exportação JSON.
 - Sincronização ao entrar, retornar ao app e após alterações. Sem edição offline nesta etapa.
 
-O painel consulta os resultados diretamente no domínio da Caixa, com estimativa, acumulado, dezenas e rateio por faixa. A Dupla Sena separa os dois sorteios. A Mega da Virada usa a identificação especial da Caixa; sua reserva acumulada é rotulada como reserva, sem assumir que seja estimativa do prêmio final.
+O painel consulta os resultados diretamente no domínio da Caixa, com estimativa, acumulado, dezenas e rateio por faixa. A Dupla Sena separa os dois sorteios. A Mega da Virada usa a identificação especial da Caixa. A estimativa especial em destaque usa o anúncio oficial de 03/11/2026 em `special-announcements.js`, com link e data da publicação, e não a reserva acumulada da API. Esse anúncio é uma referência verificada, não uma consulta automática a notícias; alterações exigem revisão do arquivo. A estimativa da API ganha prioridade somente quando identifica o mesmo concurso especial. A referência expira após o sorteio ou quando o resultado desse concurso já consta na fonte. A reserva é apresentada separadamente, com sua própria data de consulta.
 
 Conferência do histórico completo, restauração de backup e sugestões baseadas em cobertura ainda não foram integradas. Nenhum resultado fictício é usado no app. Os arquivos em `tests/fixtures` são respostas reais fixadas somente para testes; não abastecem o painel.
 

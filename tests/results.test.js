@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { normalizeResult, weeklyRecords, latestWeeklyWinner, parseCaixaDate, loadGameWeek, RESULT_GAMES, readCache, saveCache, fetchOfficial } from '../results.js';
+import { normalizeResult, weeklyRecords, latestWeeklyWinner, parseCaixaDate, loadGameWeek, RESULT_GAMES, readCache, saveCache, fetchOfficial, specialEstimate } from '../results.js';
 const fixture = (game, suffix = '') => JSON.parse(readFileSync(new URL(`./fixtures/${game}${suffix}.json`, import.meta.url), 'utf8'));
 const now = new Date('2026-11-10T19:00:00Z');
 const normalized = game => normalizeResult(fixture(game), game);
@@ -83,6 +83,26 @@ test('Mega da Virada usa identificação especial; reserva não é estimativa', 
   raw.indicadorConcursoEspecial = 2;
   assert.equal(normalizeResult(raw, 'megasena').special, true);
   assert.notEqual(raw.valorAcumuladoConcursoEspecial, raw.valorEstimadoProximoConcurso);
+});
+test('estimativa da Virada usa anúncio oficial separado da reserva e expira na edição correta', () => {
+  const entry = { latest: normalized('megasena'), stale: false };
+  const estimate = specialEstimate(entry, now);
+  assert.equal(estimate.contest, 3100);
+  assert.equal(estimate.estimate, 1000000000);
+  assert.equal(estimate.qualifier, 'Mais de');
+  assert.equal(estimate.published, '2026-11-03');
+  assert.notEqual(estimate.estimate, entry.latest.specialReserve);
+  assert.equal(specialEstimate(entry, new Date('2027-01-02T12:00:00Z')), null);
+  assert.equal(specialEstimate({ latest: { ...entry.latest, contest: 3100 } }, now), null);
+  assert.equal(specialEstimate(entry, new Date('2026-11-02T12:00:00Z')), null);
+});
+test('a API substitui o anúncio apenas quando a estimativa se refere ao concurso especial identificado', () => {
+  const entry = { latest: normalized('megasena'), stale: false, fetchedAt: now.toISOString() };
+  entry.latest.next = { contest: 3100, date: '2027-01-01', estimate: 1100000000 };
+  assert.equal(specialEstimate(entry, now).estimate, 1100000000);
+  assert.equal(specialEstimate(entry, now).kind, 'api');
+  entry.stale = true;
+  assert.equal(specialEstimate(entry, now).kind, 'announcement');
 });
 test('cache é marcado como anterior e remove premiações ao mudar de semana', async () => {
   let content = '{}'; const storage = { getItem: () => content, setItem: (_key, value) => { content = value; } };
