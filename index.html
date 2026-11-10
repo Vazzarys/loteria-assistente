@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123e32">
+  <meta name="description" content="Seu espaço pessoal para organizar jogos, favoritos e apostas nas loterias.">
+  <title>Loteria Assistente</title>
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <section id="login-screen" class="login-layout">
+    <div class="login-story">
+      <a class="brand" href="./"><span class="brand-symbol">✣</span><span>Loteria<span class="brand-light">Assistente</span></span></a>
+      <div class="story-content"><div class="eyebrow">SEUS JOGOS, BEM ORGANIZADOS</div><h1>Mais clareza.<br>Uma aposta<br>de cada vez.</h1><p>Um espaço só seu para guardar combinações e acompanhar o que você joga.</p><div class="decorative-balls" aria-hidden="true"><span>06</span><span>17</span><span>28</span><span>35</span><span>42</span><span>59</span></div></div>
+      <p class="story-foot">Organização e probabilidades reais. Sem promessa de previsão.</p>
+    </div>
+    <div class="login-panel"><div class="login-box"><span class="pill">ACESSO PESSOAL</span><h2>Bem-vindo, Junior.</h2><p>Entre para acessar seus jogos no computador e no celular.</p>
+      <form id="login-form"><label>E-mail<input id="email" type="email" autocomplete="username" required placeholder="Seu e-mail cadastrado"></label><label>Senha<input id="password" type="password" autocomplete="current-password" required placeholder="Sua senha"></label><button class="primary" type="submit">Entrar no meu espaço <span>↗</span></button></form>
+      <p id="login-error" role="alert" class="error"></p><p class="fine">Use o usuário criado em Authentication no Supabase.</p>
+    </div></div>
+  </section>
+  <div id="app" hidden>
+    <aside class="sidebar"><a class="brand" href="./"><span class="brand-symbol">✣</span><span>Loteria<span class="brand-light">Assistente</span></span></a><div class="nav-caption">MEU ESPAÇO</div><nav id="navigation" aria-label="Menu principal"></nav><div class="sidebar-bottom"><span class="personal-dot"></span> Uso pessoal<button id="logout" class="logout">Sair ↗</button></div></aside>
+    <main><header class="topbar"><div><span class="eyebrow">SEU PAINEL PESSOAL</span><h1 id="page-title">Visão geral</h1></div><div class="topbar-right"><span id="sync-status" class="sync-status" role="status">Conectando…</span><span class="avatar">J</span></div></header><div id="content"></div><footer>Probabilidades informam. Resultados passados não preveem o próximo sorteio.</footer></main>
+  </div>
+  <dialog id="editor"><form id="editor-form"><div class="dialog-header"><div><span class="eyebrow" id="dialog-eyebrow">MEUS JOGOS</span><h2 id="dialog-title"></h2></div><button type="button" class="icon-button" id="close-editor" aria-label="Fechar">×</button></div><div id="editor-fields"></div><p id="editor-error" class="error" role="alert"></p><button type="submit" class="primary" id="editor-save">Salvar</button></form></dialog>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+  <script src="./vendor/supabase.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
