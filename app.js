@@ -1,10 +1,12 @@
 import { CONFIG } from './config.js';
 import { GAMES, validateNumbers, jackpotOdds, generateNumbers, localDate, weekBounds, money, dateLabel, escapeHTML as esc, financialSummary } from './core.js';
+import { SOURCE, RESULT_GAMES, loadGameWeek, weeklyRecords, latestWeeklyWinner, timestampLabel, readCache, saveCache } from './results.js';
 
 const $ = s => document.querySelector(s);
 const state = { user: null, favorites: [], bets: [], settings: { monthly_budget: 0, theme: 'system' }, page: 'overview', game: 'megasena', numbers: [], quantity: 6, filter: '', loaded: false };
 const navigation = [ ['overview', '◫', 'Visão geral'], ['builder', '⊕', 'Montar jogo'], ['favorites', '♡', 'Favoritos'], ['bets', '▤', 'Minhas apostas'], ['settings', '⚙', 'Ajustes'] ];
 let client, editorContext, toastTimer, loadGeneration = 0, signingIn = false, mutationPending = false;
+const resultsState = { entries: readCache(), errors: {}, busy: false, initialized: false, lastAttempt: 0, selectedGame: null, week: weekBounds().start };
 const formatNumber = n => String(n).padStart(2, '0');
 const gameStyle = game => `--game:${GAMES[game].color};--game-soft:${GAMES[game].soft}`;
 const balls = (game, numbers) => `<div class="balls" style="${gameStyle(game)}">${numbers.map(n => `<span class="ball">${formatNumber(n)}</span>`).join('')}</div>`;
@@ -43,9 +45,74 @@ function overview() {
   return `<section class="hero"><div><span class="eyebrow">CADA JOGO NO SEU LUGAR</span><h2>Olá, Junior. Vamos organizar?</h2><p>Guarde suas combinações e acompanhe suas apostas com clareza, dentro do seu orçamento.</p></div><span class="hero-mark" aria-hidden="true">✣</span></section>
     <section class="stats" aria-label="Resumo pessoal"><div class="stat"><span class="stat-label">Combinações favoritas</span><strong class="stat-value">${state.favorites.length}</strong><span class="stat-note">Guardadas na sua conta</span></div><div class="stat"><span class="stat-label">Apostas neste mês</span><strong class="stat-value">${summary.count}</strong><span class="stat-note">Por data da aposta</span></div><div class="stat"><span class="stat-label">Investido neste mês</span><strong class="stat-value">${money(summary.cost)}</strong><span class="stat-note">${budget ? `Orçamento: ${money(budget)}` : 'Defina um orçamento em Ajustes'}</span>${budget ? `<div class="budget-line ${summary.cost > budget ? 'exceeded' : ''}"><span style="width:${Math.min(100, summary.cost / budget * 100)}%"></span></div>` : ''}</div><div class="stat"><span class="stat-label">Prêmios registrados no mês</span><strong class="stat-value">${money(summary.prizes)}</strong><span class="stat-note">Informados por você • data da aposta</span></div></section>
     <div class="section-heading"><div><h2>Suas modalidades</h2><p>Painel de premiações da semana</p></div><span class="week-pill">${dateLabel(week.start).slice(0, 5)} — ${dateLabel(week.end).slice(0, 5)}</span></div>
-    <div class="notice"><strong>Primeira etapa: seus registros pessoais.</strong> Resultados, premiações e conferência histórica ainda não estão conectados. Nenhum valor de sorteio é simulado.</div>
-    <section class="game-cards">${Object.entries(GAMES).map(([game, g]) => `<article class="game-card" style="${gameStyle(game)}"><div class="game-name"><span class="game-dot" aria-hidden="true">✣</span>${g.name}</div><p class="game-state">Resultados e rateio<br><strong>Integração pendente</strong></p><button class="small-button" data-build="${game}">Montar meu jogo ↗</button></article>`).join('')}</section>`;
+    <div class="results-toolbar"><p class="muted">Fonte: Loterias Caixa · Valores estimados não são prêmios já pagos.</p><button class="small-button" data-action="refresh-results" ${resultsState.busy ? 'disabled' : ''}>${resultsState.busy ? 'Consultando Caixa…' : '↻ Atualizar resultados'}</button></div>
+    <section class="game-cards">${Object.keys(GAMES).map(resultCard).join('')}</section>
+    <p class="fine" style="margin-top:16px">O painel limita os rateios à semana atual no horário de Brasília. A conferência do histórico completo será integrada em uma etapa separada.</p>`;
 }
+function resultEntry(game) {
+  const entry = resultsState.entries[game === 'megadavirada' ? 'megasena' : game];
+  return entry && game === 'megadavirada' ? { ...entry, records: entry.records.filter(r => r.special) } : entry;
+}
+function resultCard(game) {
+  const g = GAMES[game], entry = resultEntry(game), records = weeklyRecords(entry), winner = latestWeeklyWinner(entry);
+  const next = entry?.latest?.next;
+  const nextCurrent = next?.date && next.date >= localDate();
+  const special = game === 'megadavirada';
+  const loading = resultsState.busy && !entry;
+  const error = resultsState.errors[special ? 'megasena' : game];
+  const heading = special ? 'Reserva para concurso especial' : nextCurrent ? `Estimativa · concurso ${next.contest || 'a divulgar'}` : 'Próxima estimativa';
+  const amount = special ? entry?.latest?.specialReserve : nextCurrent ? next.estimate : null;
+  const weekText = records.length ? `${records.length} concurso${records.length > 1 ? 's' : ''} nesta semana` : loading ? 'Consultando fonte oficial…' : !entry ? 'Resultados indisponíveis' : entry.stale || !entry.complete ? 'Sem resultado verificado nesta semana' : special ? 'Sem sorteio especial nesta semana' : 'Aguardando sorteio desta semana';
+  return `<article class="game-card results-card" style="${gameStyle(game)}"><div class="game-name"><span class="game-dot" aria-hidden="true">✣</span>${g.name}</div><div class="estimate"><span class="muted">${heading}</span><strong>${amount === null || amount === undefined ? loading ? 'Consultando…' : 'Não informada' : money(amount)}</strong><span class="fine">${special ? 'Reserva acumulada; não é a estimativa do prêmio final.' : nextCurrent ? `Próximo sorteio: ${dateLabel(next.date)}` : 'Aguardando nova informação da Caixa.'}</span></div><div class="week-result"><strong>${weekText}</strong>${winner ? `<p>Último prêmio principal: ${dateLabel(winner.date)}${game === 'duplasena' ? ` · ${winner.draw}º sorteio` : ''}<br>${winner.winners} aposta${winner.winners > 1 ? 's' : ''} vencedora${winner.winners > 1 ? 's' : ''} · ${money(winner.prize)} por aposta</p>` : records.length && entry.complete && !entry.stale ? '<p>Sem ganhador do prêmio principal nesta semana.</p>' : ''}</div>${entry ? `<p class="source-time">Consulta: ${timestampLabel(entry.fetchedAt)}${entry.stale ? '<br><strong>Cópia anterior — atualização não confirmada</strong>' : ''}${!entry.complete ? '<br>Consulta semanal parcial' : ''}</p>` : ''}${error ? '<p class="result-error">Não foi possível atualizar esta modalidade. Tente novamente.</p>' : ''}<div class="result-actions"><button class="small-button" data-results="${game}" ${entry ? '' : 'disabled'}>Ver resultados e rateio</button><button class="small-button" data-build="${game}">Montar jogo ↗</button></div></article>`;
+}
+function openResults(game) {
+  if (!GAMES[game]) return;
+  resultsState.selectedGame = game;
+  renderResultsDialog();
+  $('#results-dialog').showModal();
+}
+function renderResultsDialog() {
+  const game = resultsState.selectedGame;
+  if (!game) return;
+  const entry = resultEntry(game), records = weeklyRecords(entry), week = weekBounds();
+  $('#results-title').textContent = GAMES[game].name;
+  const carryover = game !== 'megadavirada' ? entry?.latest?.next?.carryover : null;
+  $('#results-content').innerHTML = `<p class="muted">Semana de ${dateLabel(week.start)} a ${dateLabel(week.end)} · horário de Brasília</p>${entry ? `<p class="fine">Consulta à Caixa: ${timestampLabel(entry.fetchedAt)}. ${entry.stale ? 'Exibindo cópia anterior; atualização não confirmada.' : 'Fonte consultada nesta atualização.'}</p>` : ''}${carryover !== null && carryover !== undefined ? `<div class="notice">Acumulado para o próximo concurso: <strong>${money(carryover)}</strong>. Esse valor é diferente da estimativa do prêmio.</div>` : ''}${game === 'megadavirada' ? '<div class="notice">Aqui aparecem somente os concursos identificados pela Caixa como Mega da Virada e realizados na semana atual. A reserva exibida no cartão não representa a estimativa do prêmio final.</div>' : ''}${!entry?.complete ? '<div class="notice">A consulta da semana está incompleta. A ausência de um concurso ou ganhador não é conclusiva.</div>' : ''}${records.length ? records.map(record => `<section class="weekly-contest" style="${gameStyle(game)}"><div class="section-heading"><h3>Concurso ${record.contest}</h3><span class="muted">${dateLabel(record.date)}</span></div>${record.draws.map((numbers, index) => `<div class="draw-result"><h4>${game === 'duplasena' ? `${index + 1}º sorteio` : 'Números sorteados'}</h4>${balls(game, numbers)}<div class="table-scroll"><table class="rateio-table"><caption>Rateio${game === 'duplasena' ? ` do ${index + 1}º sorteio` : ''}</caption><thead><tr><th>Acertos</th><th>Apostas vencedoras</th><th>Por aposta</th></tr></thead><tbody>${record.tiers.filter(t => t.draw === index + 1).map(t => `<tr><td>${t.hits}</td><td>${t.winners.toLocaleString('pt-BR')}</td><td>${t.winners ? money(t.prize) : '—'}</td></tr>`).join('')}</tbody></table></div>${record.tiers.filter(t => t.draw === index + 1 && t.hits === numbers.length).map(t => `<p class="fine">${t.winners ? `Total do rateio principal: ${money(Math.round(t.prize * 100) * t.winners / 100)} (${t.winners} × ${money(t.prize)}; total calculado).` : 'Não houve aposta vencedora do prêmio principal neste sorteio.'}</p>`).join('')}</div>`).join('')}${record.cities.length ? `<details class="winner-locations"><summary>Localidades divulgadas pela Caixa</summary><p class="fine">Local de registro das apostas, conforme divulgação por concurso. Não identifica pessoas nem a divisão interna de bolões.</p><ul>${record.cities.map(c => `<li>${esc(c.city)} / ${esc(c.state)} · ${c.winners} aposta${c.winners > 1 ? 's' : ''}</li>`).join('')}</ul></details>` : ''}<a class="official-link" href="${SOURCE + (game === 'megadavirada' ? 'megasena' : game) + '/' + record.contest}" target="_blank" rel="noopener noreferrer">Consultar dados deste concurso na Caixa ↗</a></section>`).join('') : `<div class="empty"><h3>${entry && entry.complete && !entry.stale ? 'Nenhum sorteio desta modalidade na semana atual.' : 'Sem resultados verificados para esta semana.'}</h3><p>Resultados de semanas anteriores não são exibidos neste painel.</p></div>`}<p class="fine">“Apostas vencedoras” não significa quantidade de pessoas. Os valores são os rateios divulgados pela Caixa, não o valor total que uma aposta com mais dezenas receberia em todas as faixas.</p>`;
+}
+async function refreshResults() {
+  if (resultsState.busy || !state.user) return;
+  resultsState.busy = true; resultsState.initialized = true; resultsState.lastAttempt = Date.now();
+  if (state.page === 'overview' && state.loaded) render();
+  await Promise.all(RESULT_GAMES.map(async game => {
+    try {
+      const entry = await loadGameWeek(game, resultsState.entries[game]);
+      resultsState.entries[game] = entry;
+      if (entry.error) resultsState.errors[game] = entry.error; else delete resultsState.errors[game];
+    } catch (error) {
+      resultsState.errors[game] = error.message;
+      if (resultsState.entries[game]) resultsState.entries[game] = { ...resultsState.entries[game], records: weeklyRecords(resultsState.entries[game]), stale: true };
+    }
+  }));
+  saveCache(resultsState.entries);
+  resultsState.busy = false;
+  if (state.user && state.page === 'overview' && state.loaded) render();
+  if ($('#results-dialog').open) renderResultsDialog();
+}
+$('#close-results').addEventListener('click', () => $('#results-dialog').close());
+setInterval(() => {
+  if (!state.user || document.visibilityState !== 'visible') return;
+  const currentWeek = weekBounds().start;
+  if (currentWeek !== resultsState.week) {
+    resultsState.week = currentWeek;
+    for (const entry of Object.values(resultsState.entries)) {
+      entry.records = weeklyRecords(entry); entry.complete = false; entry.stale = true;
+    }
+    saveCache(resultsState.entries);
+    if (state.page === 'overview' && state.loaded) render();
+    if ($('#results-dialog').open) renderResultsDialog();
+  }
+  if (Date.now() - resultsState.lastAttempt >= 300000 && !$('#editor').open) void refreshResults();
+}, 60000);
 function builder() {
   const g = GAMES[state.game];
   const valid = validateNumbers(state.game, state.numbers);
@@ -65,7 +132,7 @@ function bets() {
   return filterHeader('Seu histórico de apostas', rows.length) + '<div class="notice">Registre somente jogos que você já apostou. A conferência automática será integrada na próxima etapa. Os prêmios abaixo são informados manualmente.</div>' + (rows.length ? `<div class="record-list">${rows.map(b => `<article class="record" style="${gameStyle(b.game)}"><div class="record-heading"><div><h3>${GAMES[b.game].name} · Concurso ${b.contest}</h3><span class="muted">Aposta em ${dateLabel(b.bet_date)}</span></div><span class="pill">${b.prize_received === null ? 'SEM PRÊMIO INFORMADO' : 'VALOR INFORMADO'}</span></div>${balls(b.game, b.numbers)}<div class="prize-data"><div><span class="muted">Valor apostado</span><strong>${money(b.cost)}</strong></div><div><span class="muted">Prêmio informado</span><strong>${b.prize_received === null ? '—' : money(b.prize_received)}</strong></div></div>${b.notes ? `<p class="record-notes" style="margin-top:14px">${esc(b.notes)}</p>` : ''}<div class="record-actions"><button class="small-button" data-edit-bet="${b.id}">Editar registro</button><button class="small-button" data-delete-bet="${b.id}">Excluir</button></div></article>`).join('')}</div>` : empty('Suas apostas, sem perder o controle.', 'Monte um jogo ou abra um favorito e selecione “Registrar aposta” depois de jogar na Caixa.'));
 }
 function settings() {
-  return `<div class="settings-grid"><section class="panel"><h2>Seu planejamento</h2><p>Defina um limite mensal para acompanhar seus gastos.</p><form id="settings-form"><label>Orçamento mensal (R$)<input name="budget" type="number" min="0" max="9999999999.99" step="0.01" value="${state.settings.monthly_budget}" required></label><label>Aparência<select name="theme"><option value="system" ${state.settings.theme === 'system' ? 'selected' : ''}>Acompanhar o dispositivo</option><option value="light" ${state.settings.theme === 'light' ? 'selected' : ''}>Clara</option><option value="dark" ${state.settings.theme === 'dark' ? 'selected' : ''}>Escura</option></select></label><button type="submit" class="primary">Salvar preferências</button></form></section><section class="panel"><h2>Seus dados, com você.</h2><p>Favoritos e apostas ficam vinculados à sua conta. Exporte uma cópia em JSON quando quiser.</p><button class="secondary" data-action="export">↓ Exportar meus registros</button><hr style="border:0;border-top:1px solid var(--border);margin:25px 0"><span class="eyebrow">CONTA CONECTADA</span><p class="account-address" style="margin-top:12px">${esc(state.user.email)}</p><button class="secondary" data-action="logout">Sair da conta ↗</button><p class="fine" style="margin-top:20px">Versão 0.1 • Organização pessoal. Integração dos resultados pendente.</p></section></div>`;
+  return `<div class="settings-grid"><section class="panel"><h2>Seu planejamento</h2><p>Defina um limite mensal para acompanhar seus gastos.</p><form id="settings-form"><label>Orçamento mensal (R$)<input name="budget" type="number" min="0" max="9999999999.99" step="0.01" value="${state.settings.monthly_budget}" required></label><label>Aparência<select name="theme"><option value="system" ${state.settings.theme === 'system' ? 'selected' : ''}>Acompanhar o dispositivo</option><option value="light" ${state.settings.theme === 'light' ? 'selected' : ''}>Clara</option><option value="dark" ${state.settings.theme === 'dark' ? 'selected' : ''}>Escura</option></select></label><button type="submit" class="primary">Salvar preferências</button></form></section><section class="panel"><h2>Seus dados, com você.</h2><p>Favoritos e apostas ficam vinculados à sua conta. Exporte uma cópia em JSON quando quiser.</p><button class="secondary" data-action="export">↓ Exportar meus registros</button><hr style="border:0;border-top:1px solid var(--border);margin:25px 0"><span class="eyebrow">CONTA CONECTADA</span><p class="account-address" style="margin-top:12px">${esc(state.user.email)}</p><button class="secondary" data-action="logout">Sair da conta ↗</button><p class="fine" style="margin-top:20px">Versão 0.2 • Resultados e rateios semanais conectados à Caixa.</p></section></div>`;
 }
 
 async function readAll(table) {
@@ -91,6 +158,7 @@ async function loadData() {
     state.loaded = true;
     $('#sync-status').textContent = '● Sincronizado';
     render();
+    if (!resultsState.initialized) void refreshResults();
   } catch (error) {
     if (generation !== loadGeneration || !state.user) return;
     $('#sync-status').textContent = 'Falha na sincronização';
@@ -102,7 +170,7 @@ async function activateSession(session) {
   if (session?.user?.id !== CONFIG.ownerId) {
     if (session) { await client.auth.signOut({ scope: 'local' }); $('#login-error').textContent = 'Esta conta não está autorizada a usar este aplicativo.'; }
     state.user = null; state.loaded = false; state.bets = []; state.favorites = []; state.numbers = []; state.page = 'overview'; state.settings = { monthly_budget: 0, theme: 'system' }; loadGeneration++;
-    $('#app').hidden = true; $('#content').replaceChildren(); $('#login-screen').hidden = false; $('#editor').close(); $('#password').value = ''; applyTheme();
+    $('#app').hidden = true; $('#content').replaceChildren(); $('#login-screen').hidden = false; $('#editor').close(); $('#results-dialog').close(); $('#password').value = ''; applyTheme();
     return;
   }
   if (state.user?.id === session.user.id && state.loaded) return;
@@ -209,6 +277,7 @@ document.addEventListener('click', event => {
   const d = button.dataset;
   if (d.page) navigate(d.page);
   if (d.build) setGame(d.build);
+  if (d.results) openResults(d.results);
   if (d.game) setGame(d.game);
   if (d.number !== undefined) {
     const n = Number(d.number), g = GAMES[state.game];
@@ -224,12 +293,12 @@ document.addEventListener('click', event => {
   if (d.editBet) openEditor('bet', state.bets.find(b => b.id === d.editBet));
   if (d.deleteFavorite) void deleteRecord('favorites', d.deleteFavorite);
   if (d.deleteBet) void deleteRecord('bets', d.deleteBet);
-  const actions = { generate: () => { state.numbers = generateNumbers(state.game, state.quantity); render(); }, clear: () => { state.numbers = []; render(); }, favorite: () => openEditor('favorite'), bet: () => openEditor('bet'), export: exportRecords, logout: () => void logout(), reload: () => void loadData() };
+  const actions = { generate: () => { state.numbers = generateNumbers(state.game, state.quantity); render(); }, clear: () => { state.numbers = []; render(); }, favorite: () => openEditor('favorite'), bet: () => openEditor('bet'), export: exportRecords, 'refresh-results': () => void refreshResults(), logout: () => void logout(), reload: () => void loadData() };
   if (d.action) actions[d.action]?.();
 });
-window.addEventListener('online', () => { if (state.user && !mutationPending) void loadData(); });
+window.addEventListener('online', () => { if (state.user && !mutationPending) { void loadData(); void refreshResults(); } });
 window.addEventListener('offline', () => { $('#sync-status').textContent = 'Sem conexão'; });
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && state.user && !$('#editor').open && !mutationPending) void loadData(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && state.user && !$('#editor').open && !mutationPending) { void loadData(); if (Date.now() - resultsState.lastAttempt > 300000) void refreshResults(); } });
 
 try {
   if (!globalThis.supabase?.createClient) throw new Error('Não foi possível carregar o cliente de conexão. Atualize a página.');
