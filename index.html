@@ -7,7 +7,7 @@
   <meta name="description" content="Seu espaço pessoal para organizar jogos, favoritos e apostas nas loterias.">
   <title>Loteria Assistente</title>
   <link rel="icon" href="./icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./styles.css?v=0.2.1">
+  <link rel="stylesheet" href="./styles.css?v=0.3.0">
 </head>
 <body>
   <section id="login-screen" class="login-layout">
@@ -27,8 +27,9 @@
   </div>
   <dialog id="editor"><form id="editor-form"><div class="dialog-header"><div><span class="eyebrow" id="dialog-eyebrow">MEUS JOGOS</span><h2 id="dialog-title"></h2></div><button type="button" class="icon-button" id="close-editor" aria-label="Fechar">×</button></div><div id="editor-fields"></div><p id="editor-error" class="error" role="alert"></p><button type="submit" class="primary" id="editor-save">Salvar</button></form></dialog>
   <dialog id="results-dialog" class="results-dialog"><div class="dialog-header"><div><span class="eyebrow">RESULTADOS OFICIAIS • SEMANA ATUAL</span><h2 id="results-title"></h2></div><button type="button" class="icon-button" id="close-results" aria-label="Fechar resultados">×</button></div><div id="results-content"></div></dialog>
+  <dialog id="history-dialog" class="history-dialog"><div class="dialog-header"><div><span class="eyebrow">CONFERÊNCIA DO HISTÓRICO</span><h2 id="history-title"></h2></div><button type="button" class="icon-button" id="close-history" aria-label="Fechar conferência">×</button></div><div id="history-content"></div></dialog>
   <div id="toast" role="status" aria-live="polite" hidden></div>
   <script src="./vendor/supabase.js"></script>
-  <script type="module" src="./app.js?v=0.2.1"></script>
+  <script type="module" src="./app.js?v=0.3.0"></script>
 </body>
 </html>

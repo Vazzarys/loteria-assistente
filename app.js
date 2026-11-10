@@ -1,12 +1,14 @@
 import { CONFIG } from './config.js';
 import { GAMES, validateNumbers, jackpotOdds, generateNumbers, localDate, weekBounds, money, dateLabel, escapeHTML as esc, financialSummary } from './core.js';
 import { SOURCE, RESULT_GAMES, loadGameWeek, weeklyRecords, latestWeeklyWinner, timestampLabel, readCache, saveCache, specialEstimate } from './results.js';
+import { loadHistorical, checkCombination, baseGame } from './history.js';
 
 const $ = s => document.querySelector(s);
 const state = { user: null, favorites: [], bets: [], settings: { monthly_budget: 0, theme: 'system' }, page: 'overview', game: 'megasena', numbers: [], quantity: 6, filter: '', loaded: false };
 const navigation = [ ['overview', '◫', 'Visão geral'], ['builder', '⊕', 'Montar jogo'], ['favorites', '♡', 'Favoritos'], ['bets', '▤', 'Minhas apostas'], ['settings', '⚙', 'Ajustes'] ];
 let client, editorContext, toastTimer, loadGeneration = 0, signingIn = false, mutationPending = false;
 const resultsState = { entries: readCache(), errors: {}, busy: false, initialized: false, lastAttempt: 0, selectedGame: null, week: weekBounds().start };
+const historyState = { game: null, numbers: [], data: null, result: null, controller: null, run: 0, busy: false, progress: '', error: null, scope: 'all', filter: '2+', limit: 40 };
 const formatNumber = n => String(n).padStart(2, '0');
 const gameStyle = game => `--game:${GAMES[game].color};--game-soft:${GAMES[game].soft}`;
 const balls = (game, numbers) => `<div class="balls" style="${gameStyle(game)}">${numbers.map(n => `<span class="ball">${formatNumber(n)}</span>`).join('')}</div>`;
@@ -47,7 +49,7 @@ function overview() {
     <div class="section-heading"><div><h2>Suas modalidades</h2><p>Painel de premiações da semana</p></div><span class="week-pill">${dateLabel(week.start).slice(0, 5)} — ${dateLabel(week.end).slice(0, 5)}</span></div>
     <div class="results-toolbar"><p class="muted">Fonte: Loterias Caixa · Valores estimados não são prêmios já pagos.</p><button class="small-button" data-action="refresh-results" ${resultsState.busy ? 'disabled' : ''}>${resultsState.busy ? 'Consultando Caixa…' : '↻ Atualizar resultados'}</button></div>
     <section class="game-cards">${Object.keys(GAMES).map(resultCard).join('')}</section>
-    <p class="fine" style="margin-top:16px">O painel limita os rateios à semana atual no horário de Brasília. A conferência do histórico completo será integrada em uma etapa separada.</p>`;
+    <p class="fine" style="margin-top:16px">O painel limita os rateios à semana atual no horário de Brasília. Use Conferir em Montar jogo ou Favoritos para comparar uma combinação com o histórico completo.</p>`;
 }
 function resultEntry(game) {
   const entry = resultsState.entries[game === 'megadavirada' ? 'megasena' : game];
@@ -115,26 +117,79 @@ setInterval(() => {
   }
   if (Date.now() - resultsState.lastAttempt >= 300000 && !$('#editor').open) void refreshResults();
 }, 60000);
+function closeHistory() {
+  historyState.controller?.abort(); historyState.run++;
+  historyState.result = null; historyState.numbers = []; historyState.busy = false; historyState.data = null;
+  $('#history-dialog').close(); $('#history-content').replaceChildren();
+}
+function openHistory(game, numbers) {
+  if (!validateNumbers(game, numbers)) { toast('Selecione uma combinação válida para conferir.'); return; }
+  historyState.controller?.abort();
+  Object.assign(historyState, { game, numbers: [...numbers], result: null, data: null, error: null, scope: 'all', filter: '2+', limit: 40 });
+  $('#history-title').textContent = GAMES[game].name;
+  $('#history-dialog').showModal();
+  void runHistory();
+}
+async function runHistory() {
+  if (historyState.busy || !historyState.game) return;
+  const run = ++historyState.run;
+  historyState.controller = new AbortController(); historyState.busy = true; historyState.error = null; historyState.progress = 'Carregando histórico oficial…';
+  renderHistory();
+  try {
+    const data = await loadHistorical(historyState.game, { signal: historyState.controller.signal, onProgress: p => {
+      if (run !== historyState.run) return;
+      historyState.progress = p.stage === 'loading' ? 'Carregando a base histórica…' : p.stage === 'latest' ? 'Consultando o último concurso na Caixa…' : `Atualizando concursos: ${p.done} de ${p.total}${p.failed ? ` · ${p.failed} indisponível(is)` : ''}`;
+      const label = $('#history-progress'); if (label) label.textContent = historyState.progress;
+    } });
+    if (run !== historyState.run || !state.user) return;
+    historyState.data = data;
+    historyState.result = checkCombination(data, historyState.game, historyState.numbers, historyState.scope);
+  } catch (error) {
+    if (run !== historyState.run || error.name === 'AbortError') return;
+    historyState.error = errorMessage(error);
+  } finally {
+    if (run === historyState.run) { historyState.busy = false; renderHistory(); }
+  }
+}
+function renderHistory() {
+  const s = historyState, g = GAMES[s.game];
+  if (!g || !$('#history-dialog').open) return;
+  const prefix = `${balls(s.game, s.numbers)}<p class="fine">Comparação por conjunto de números; a ordem não importa. Coincidências históricas não significam que você recebeu um prêmio.</p>`;
+  if (s.busy) { $('#history-content').innerHTML = prefix + '<div class="loading"><p id="history-progress" role="status"></p><p class="fine">Você pode fechar esta janela para cancelar.</p></div>'; $('#history-progress').textContent = s.progress; return; }
+  if (s.error) { $('#history-content').innerHTML = prefix + `<p class="error">${esc(s.error)}</p><button class="primary" data-action="refresh-history">Tentar novamente</button>`; return; }
+  const r = s.result;
+  if (!r) return;
+  const c = r.coverage, conclusive = c.complete && r.currentConfirmed;
+  const scope = baseGame(s.game) === 'megasena' ? `<label class="history-scope-label">Comparar com<select id="history-scope"><option value="all" ${s.scope === 'all' ? 'selected' : ''}>Todos os concursos da Mega-Sena, incluindo a Virada</option><option value="special" ${s.scope === 'special' ? 'selected' : ''}>Somente edições identificadas da Mega da Virada</option></select></label>` : '';
+  const negative = conclusive ? 'Nenhuma combinação idêntica encontrada.' : 'Nenhuma combinação idêntica encontrada na base consultada; a cobertura atual não foi confirmada.';
+  const headline = r.canBeIdentical ? r.fullMatches ? `Combinação idêntica em ${r.fullMatches} sorteio${r.fullMatches > 1 ? 's' : ''}.` : negative : r.fullMatches ? `Seu jogo contém todas as ${g.drawn} dezenas sorteadas em ${r.fullMatches} sorteio${r.fullMatches > 1 ? 's' : ''}.` : `Nenhum sorteio consultado teve todas as ${g.drawn} dezenas contidas no seu jogo.`;
+  let rows = r.rows.filter(row => s.filter === 'all' || (s.filter === '2+' ? row.hits >= 2 : row.hits === Number(s.filter)));
+  const visible = rows.slice(0, s.limit);
+  const anomalyIds = new Set(r.dateAnomalies.flatMap(a => [a.contest, a.previousContest]));
+  $('#history-content').innerHTML = prefix + scope + `<div class="history-coverage ${conclusive ? '' : 'partial'}"><strong>${c.complete ? `Cobertura do concurso 1 ao ${c.last.toLocaleString('pt-BR')}` : `Base parcial: ${c.count.toLocaleString('pt-BR')} de ${c.expected.toLocaleString('pt-BR')} concursos`}</strong><p>${r.currentConfirmed ? `Último concurso confirmado na Caixa em ${timestampLabel(r.checkedAt)}.` : 'Novos concursos não puderam ser verificados agora. A análise utiliza a base disponível.'}${c.missingCount ? ` Faltam ${c.missingCount} concursos.` : ''}</p>${r.updateError ? `<p>${esc(r.updateError)}</p>` : ''}</div><div class="history-summary"><h3>${headline}</h3><p>${r.contestCount.toLocaleString('pt-BR')} concursos e ${r.drawCount.toLocaleString('pt-BR')} sorteios comparados${s.scope === 'special' ? ' da Mega da Virada' : ''}. Maior coincidência: <strong>${r.maxHits} números</strong>.</p>${!r.canBeIdentical ? '<p class="fine">Seu jogo tem mais números que o sorteio. A análise mede quantas dezenas sorteadas estão contidas nele; não é igualdade entre os dois conjuntos.</p>' : ''}</div><h3 class="history-histogram-title">Quantas dezenas coincidiram?</h3><p class="fine">Toque em uma quantidade para ver os sorteios correspondentes. As contagens são exatas, não acumuladas.</p><div class="history-counts" style="${gameStyle(s.game)}">${r.histogram.map((count,hits) => `<button class="history-count ${s.filter === String(hits) ? 'active' : ''}" data-hit="${hits}" aria-pressed="${s.filter === String(hits)}"><span>${hits} ${hits === 1 ? 'número' : 'números'}</span><strong>${count.toLocaleString('pt-BR')}</strong><small>sorteios</small></button>`).join('')}</div><div class="history-filter-row"><label>Mostrar<select id="history-filter"><option value="2+" ${s.filter === '2+' ? 'selected' : ''}>2 ou mais coincidências</option><option value="all" ${s.filter === 'all' ? 'selected' : ''}>Todos os sorteios</option>${r.histogram.map((_,hits) => `<option value="${hits}" ${s.filter === String(hits) ? 'selected' : ''}>Exatamente ${hits} coincidências</option>`).join('')}</select></label><span class="muted">${rows.length.toLocaleString('pt-BR')} sorteios · maiores coincidências primeiro</span></div><div class="history-matches">${visible.map(row => `<article class="history-match" style="${gameStyle(s.game)}"><div class="record-heading"><h3>Concurso ${row.contest}${s.game === 'duplasena' ? ` · ${row.draw}º sorteio` : ''}</h3><span class="muted">${dateLabel(row.date)}${anomalyIds.has(row.contest) ? ' *' : ''}</span></div><div class="history-draw">${row.numbers.map(n => `<span class="ball ${row.common.includes(n) ? 'matched' : 'unmatched'}">${formatNumber(n)}</span>`).join('')}</div><p class="muted"><strong>${row.hits} ${row.hits === 1 ? 'coincidência' : 'coincidências'}</strong>${row.common.length ? ': ' + row.common.map(formatNumber).join(' · ') : ''}</p><a class="official-link" href="${SOURCE + baseGame(s.game) + '/' + row.contest}" target="_blank" rel="noopener noreferrer">Ver concurso na Caixa ↗</a></article>`).join('') || '<div class="empty"><h3>Nenhum sorteio neste filtro.</h3><p>Escolha outra quantidade de coincidências acima.</p></div>'}</div>${rows.length > visible.length ? `<button class="secondary history-more" data-action="more-history">Mostrar mais 40 (${visible.length} de ${rows.length})</button>` : ''}${r.dateAnomalies.length ? '<p class="fine">* A fonte oficial apresenta datas fora da sequência dos concursos nesses registros. As datas foram mantidas como publicadas.</p>' : ''}<p class="fine history-source">Base importada em ${timestampLabel(r.importedAt)} dos downloads oficiais da Caixa. ${s.scope === 'special' ? 'As primeiras edições especiais foram identificadas por relação de concursos, pois a marcação antiga da API não é uniforme.' : ''}</p><button class="secondary" data-action="refresh-history">↻ Atualizar e conferir novamente</button>`;
+}
+$('#close-history').addEventListener('click', closeHistory);
+$('#history-dialog').addEventListener('cancel', event => { event.preventDefault(); closeHistory(); });
 function builder() {
   const g = GAMES[state.game];
   const valid = validateNumbers(state.game, state.numbers);
   const odds = valid ? jackpotOdds(state.game, state.numbers.length) : null;
   return `<div class="game-tabs" role="group" aria-label="Modalidade">${Object.entries(GAMES).map(([key, item]) => `<button class="game-tab ${state.game === key ? 'active' : ''}" style="${gameStyle(key)}" data-game="${key}" aria-pressed="${state.game === key}">${item.name}</button>`).join('')}</div>
     <div class="builder-layout" style="${gameStyle(state.game)}"><section class="panel"><div class="builder-top"><div><h2>${g.name}</h2><span class="muted">${g.min === g.max ? `Selecione ${g.min} números` : `Selecione de ${g.min} a ${g.max} números`} entre ${formatNumber(g.first)} e ${g.last}.</span></div><label class="quantity-label">Gerar quantos?<input id="quantity" type="number" min="${g.min}" max="${g.max}" value="${state.quantity}" ${g.min === g.max ? 'readonly' : ''}></label></div><div class="number-grid" role="group" aria-label="Escolha os números">${Array.from({ length: g.last - g.first + 1 }, (_, i) => i + g.first).map(n => `<button class="number ${state.numbers.includes(n) ? 'selected' : ''}" data-number="${n}" aria-pressed="${state.numbers.includes(n)}" aria-label="Número ${formatNumber(n)}">${formatNumber(n)}</button>`).join('')}</div><div class="builder-controls"><button class="secondary" data-action="generate">⤨ Gerar aleatórios</button><button class="secondary" data-action="clear">Limpar</button></div></section>
-    <section class="panel summary-panel"><span class="eyebrow">SUA COMBINAÇÃO</span><h2 style="margin-top:12px">Um jogo do seu jeito.</h2><span class="selected-count">${state.numbers.length} números selecionados</span>${state.numbers.length ? balls(state.game, state.numbers) : '<p class="selection-empty">Toque nos números ao lado ou gere uma combinação aleatória.</p>'}<div class="odds"><span class="muted">Chance do prêmio principal${state.game === 'duplasena' ? ' por sorteio' : ''}</span><strong>${odds ? `1 em ${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 }).format(odds)}` : 'Selecione um jogo válido'}</strong><span class="fine">${state.game === 'lotomania' ? 'Probabilidade de acertar os 20 números.' : `Probabilidade de acertar ${g.drawn} números.`} Sorteios independentes; o histórico não altera essa chance.</span></div><div class="action-stack"><button class="primary" data-action="favorite" ${valid ? '' : 'disabled'}>♡ Salvar favorito</button><button class="secondary" data-action="bet" ${valid ? '' : 'disabled'}>Registrar aposta realizada</button></div><p class="fine" style="margin-top:16px;margin-bottom:0">Gerador aleatório, sem previsão. Registrar aqui não realiza uma aposta na Caixa.</p></section></div>`;
+    <section class="panel summary-panel"><span class="eyebrow">SUA COMBINAÇÃO</span><h2 style="margin-top:12px">Um jogo do seu jeito.</h2><span class="selected-count">${state.numbers.length} números selecionados</span>${state.numbers.length ? balls(state.game, state.numbers) : '<p class="selection-empty">Toque nos números ao lado ou gere uma combinação aleatória.</p>'}<div class="odds"><span class="muted">Chance do prêmio principal${state.game === 'duplasena' ? ' por sorteio' : ''}</span><strong>${odds ? `1 em ${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 }).format(odds)}` : 'Selecione um jogo válido'}</strong><span class="fine">${state.game === 'lotomania' ? 'Probabilidade de acertar os 20 números.' : `Probabilidade de acertar ${g.drawn} números.`} Sorteios independentes; o histórico não altera essa chance.</span></div><div class="action-stack"><button class="primary" data-action="check-history" ${valid ? '' : 'disabled'}>Conferir no histórico</button><button class="secondary" data-action="favorite" ${valid ? '' : 'disabled'}>♡ Salvar favorito</button><button class="secondary" data-action="bet" ${valid ? '' : 'disabled'}>Registrar aposta realizada</button></div><p class="fine" style="margin-top:16px;margin-bottom:0">Gerador aleatório, sem previsão. Registrar aqui não realiza uma aposta na Caixa.</p></section></div>`;
 }
 function filterHeader(title, count) { return `<div class="section-heading"><div><h2>${title}</h2><p>${count} registro${count === 1 ? '' : 's'} na sua conta</p></div><select class="filter-select" id="game-filter" aria-label="Filtrar modalidade"><option value="">Todas as modalidades</option>${gameOptions(state.filter)}</select></div>`; }
 function empty(title, description) { return `<div class="empty"><span class="empty-symbol" aria-hidden="true">✣</span><h3>${title}</h3><p>${description}</p><button class="primary" data-page="builder">Montar meu jogo ↗</button></div>`; }
 function favorites() {
   const rows = state.favorites.filter(f => !state.filter || f.game === state.filter);
-  return filterHeader('Suas combinações favoritas', rows.length) + (rows.length ? `<div class="record-list">${rows.map(f => `<article class="record" style="${gameStyle(f.game)}"><div class="record-heading"><div><h3>${esc(f.name || GAMES[f.game].name)}</h3><span class="muted">${GAMES[f.game].name} • salvo em ${dateLabel(localDate(new Date(f.created_at)))}</span></div><span class="game-name" aria-hidden="true">♡</span></div>${balls(f.game, f.numbers)}${f.notes ? `<p class="record-notes">${esc(f.notes)}</p>` : ''}<div class="record-actions"><button class="small-button" data-use="${f.id}">Usar combinação</button><button class="small-button" data-bet-favorite="${f.id}">Registrar aposta</button><button class="small-button" data-edit-favorite="${f.id}">Editar nome</button><button class="small-button" data-delete-favorite="${f.id}">Excluir</button></div></article>`).join('')}</div>` : empty('Seus favoritos começam aqui.', 'Salve uma combinação para encontrá-la novamente no computador e no celular.'));
+  return filterHeader('Suas combinações favoritas', rows.length) + (rows.length ? `<div class="record-list">${rows.map(f => `<article class="record" style="${gameStyle(f.game)}"><div class="record-heading"><div><h3>${esc(f.name || GAMES[f.game].name)}</h3><span class="muted">${GAMES[f.game].name} • salvo em ${dateLabel(localDate(new Date(f.created_at)))}</span></div><span class="game-name" aria-hidden="true">♡</span></div>${balls(f.game, f.numbers)}${f.notes ? `<p class="record-notes">${esc(f.notes)}</p>` : ''}<div class="record-actions"><button class="small-button" data-check-favorite="${f.id}">Conferir</button><button class="small-button" data-use="${f.id}">Usar combinação</button><button class="small-button" data-bet-favorite="${f.id}">Registrar aposta</button><button class="small-button" data-edit-favorite="${f.id}">Editar nome</button><button class="small-button" data-delete-favorite="${f.id}">Excluir</button></div></article>`).join('')}</div>` : empty('Seus favoritos começam aqui.', 'Salve uma combinação para encontrá-la novamente no computador e no celular.'));
 }
 function bets() {
   const rows = state.bets.filter(b => !state.filter || b.game === state.filter);
   return filterHeader('Seu histórico de apostas', rows.length) + '<div class="notice">Registre somente jogos que você já apostou. A conferência automática será integrada na próxima etapa. Os prêmios abaixo são informados manualmente.</div>' + (rows.length ? `<div class="record-list">${rows.map(b => `<article class="record" style="${gameStyle(b.game)}"><div class="record-heading"><div><h3>${GAMES[b.game].name} · Concurso ${b.contest}</h3><span class="muted">Aposta em ${dateLabel(b.bet_date)}</span></div><span class="pill">${b.prize_received === null ? 'SEM PRÊMIO INFORMADO' : 'VALOR INFORMADO'}</span></div>${balls(b.game, b.numbers)}<div class="prize-data"><div><span class="muted">Valor apostado</span><strong>${money(b.cost)}</strong></div><div><span class="muted">Prêmio informado</span><strong>${b.prize_received === null ? '—' : money(b.prize_received)}</strong></div></div>${b.notes ? `<p class="record-notes" style="margin-top:14px">${esc(b.notes)}</p>` : ''}<div class="record-actions"><button class="small-button" data-edit-bet="${b.id}">Editar registro</button><button class="small-button" data-delete-bet="${b.id}">Excluir</button></div></article>`).join('')}</div>` : empty('Suas apostas, sem perder o controle.', 'Monte um jogo ou abra um favorito e selecione “Registrar aposta” depois de jogar na Caixa.'));
 }
 function settings() {
-  return `<div class="settings-grid"><section class="panel"><h2>Seu planejamento</h2><p>Defina um limite mensal para acompanhar seus gastos.</p><form id="settings-form"><label>Orçamento mensal (R$)<input name="budget" type="number" min="0" max="9999999999.99" step="0.01" value="${state.settings.monthly_budget}" required></label><label>Aparência<select name="theme"><option value="system" ${state.settings.theme === 'system' ? 'selected' : ''}>Acompanhar o dispositivo</option><option value="light" ${state.settings.theme === 'light' ? 'selected' : ''}>Clara</option><option value="dark" ${state.settings.theme === 'dark' ? 'selected' : ''}>Escura</option></select></label><button type="submit" class="primary">Salvar preferências</button></form></section><section class="panel"><h2>Seus dados, com você.</h2><p>Favoritos e apostas ficam vinculados à sua conta. Exporte uma cópia em JSON quando quiser.</p><button class="secondary" data-action="export">↓ Exportar meus registros</button><hr style="border:0;border-top:1px solid var(--border);margin:25px 0"><span class="eyebrow">CONTA CONECTADA</span><p class="account-address" style="margin-top:12px">${esc(state.user.email)}</p><button class="secondary" data-action="logout">Sair da conta ↗</button><p class="fine" style="margin-top:20px">Versão 0.2 • Resultados e rateios semanais conectados à Caixa.</p></section></div>`;
+  return `<div class="settings-grid"><section class="panel"><h2>Seu planejamento</h2><p>Defina um limite mensal para acompanhar seus gastos.</p><form id="settings-form"><label>Orçamento mensal (R$)<input name="budget" type="number" min="0" max="9999999999.99" step="0.01" value="${state.settings.monthly_budget}" required></label><label>Aparência<select name="theme"><option value="system" ${state.settings.theme === 'system' ? 'selected' : ''}>Acompanhar o dispositivo</option><option value="light" ${state.settings.theme === 'light' ? 'selected' : ''}>Clara</option><option value="dark" ${state.settings.theme === 'dark' ? 'selected' : ''}>Escura</option></select></label><button type="submit" class="primary">Salvar preferências</button></form></section><section class="panel"><h2>Seus dados, com você.</h2><p>Favoritos e apostas ficam vinculados à sua conta. Exporte uma cópia em JSON quando quiser.</p><button class="secondary" data-action="export">↓ Exportar meus registros</button><hr style="border:0;border-top:1px solid var(--border);margin:25px 0"><span class="eyebrow">CONTA CONECTADA</span><p class="account-address" style="margin-top:12px">${esc(state.user.email)}</p><button class="secondary" data-action="logout">Sair da conta ↗</button><p class="fine" style="margin-top:20px">Versão 0.3 • Histórico completo e resultados semanais conectados à Caixa.</p></section></div>`;
 }
 
 async function readAll(table) {
@@ -172,7 +227,7 @@ async function activateSession(session) {
   if (session?.user?.id !== CONFIG.ownerId) {
     if (session) { await client.auth.signOut({ scope: 'local' }); $('#login-error').textContent = 'Esta conta não está autorizada a usar este aplicativo.'; }
     state.user = null; state.loaded = false; state.bets = []; state.favorites = []; state.numbers = []; state.page = 'overview'; state.settings = { monthly_budget: 0, theme: 'system' }; loadGeneration++;
-    $('#app').hidden = true; $('#content').replaceChildren(); $('#login-screen').hidden = false; $('#editor').close(); $('#results-dialog').close(); $('#password').value = ''; applyTheme();
+    $('#app').hidden = true; $('#content').replaceChildren(); $('#login-screen').hidden = false; $('#editor').close(); $('#results-dialog').close(); closeHistory(); $('#password').value = ''; applyTheme();
     return;
   }
   if (state.user?.id === session.user.id && state.loaded) return;
@@ -257,6 +312,8 @@ $('#close-editor').addEventListener('click', () => { if (!mutationPending) $('#e
 $('#editor').addEventListener('cancel', event => { if (mutationPending) event.preventDefault(); });
 $('#logout').addEventListener('click', logout);
 document.addEventListener('change', event => {
+  if (event.target.id === 'history-scope') { historyState.scope = event.target.value; historyState.limit = 40; if (historyState.data) historyState.result = checkCombination(historyState.data, historyState.game, historyState.numbers, historyState.scope); renderHistory(); }
+  if (event.target.id === 'history-filter') { historyState.filter = event.target.value; historyState.limit = 40; renderHistory(); }
   if (event.target.id === 'quantity') {
     const g = GAMES[state.game], value = Number(event.target.value);
     if (!Number.isInteger(value) || value < g.min || value > g.max) { toast(`Escolha uma quantidade de ${g.min} a ${g.max}.`); event.target.value = state.quantity; } else state.quantity = value;
@@ -290,12 +347,14 @@ document.addEventListener('click', event => {
     $(`[data-number="${n}"]`)?.focus({ preventScroll: true });
   }
   if (d.use) useFavorite(d.use);
+  if (d.checkFavorite) { const f = state.favorites.find(f => f.id === d.checkFavorite); if (f) openHistory(f.game, f.numbers); }
+  if (d.hit !== undefined) { historyState.filter = d.hit; historyState.limit = 40; renderHistory(); }
   if (d.betFavorite) useFavorite(d.betFavorite, true);
   if (d.editFavorite) openEditor('favorite', state.favorites.find(f => f.id === d.editFavorite));
   if (d.editBet) openEditor('bet', state.bets.find(b => b.id === d.editBet));
   if (d.deleteFavorite) void deleteRecord('favorites', d.deleteFavorite);
   if (d.deleteBet) void deleteRecord('bets', d.deleteBet);
-  const actions = { generate: () => { state.numbers = generateNumbers(state.game, state.quantity); render(); }, clear: () => { state.numbers = []; render(); }, favorite: () => openEditor('favorite'), bet: () => openEditor('bet'), export: exportRecords, 'refresh-results': () => void refreshResults(), logout: () => void logout(), reload: () => void loadData() };
+  const actions = { 'check-history': () => openHistory(state.game, state.numbers), 'refresh-history': () => void runHistory(), 'more-history': () => { historyState.limit += 40; renderHistory(); }, generate: () => { state.numbers = generateNumbers(state.game, state.quantity); render(); }, clear: () => { state.numbers = []; render(); }, favorite: () => openEditor('favorite'), bet: () => openEditor('bet'), export: exportRecords, 'refresh-results': () => void refreshResults(), logout: () => void logout(), reload: () => void loadData() };
   if (d.action) actions[d.action]?.();
 });
 window.addEventListener('online', () => { if (state.user && !mutationPending) { void loadData(); void refreshResults(); } });
