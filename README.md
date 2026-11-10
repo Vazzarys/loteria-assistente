@@ -2,7 +2,7 @@
 
 Aplicativo pessoal e responsivo, hospedável no GitHub Pages, com autenticação e registros no Supabase.
 
-## Etapa atual: registros pessoais, painel semanal e conferência histórica
+## Etapa atual: registros pessoais, painel semanal, conferência e sugestões
 
 - Login por e-mail e senha do usuário já criado no Supabase.
 - Seleção manual e geração aleatória de combinações para Mega-Sena, Mega da Virada, Lotofácil, Quina, Lotomania e Dupla Sena.
@@ -16,7 +16,25 @@ O painel consulta os resultados diretamente no domínio da Caixa, com estimativa
 
 A conferência histórica está disponível em Montar jogo e Favoritos. Mostra contagens exatas de 0 até o total de dezenas sorteadas, concursos correspondentes, datas, dezenas coincidentes e consulta à fonte. A Dupla Sena compara cada sorteio individualmente; a Lotomania inclui zero coincidências. Jogos ampliados usam contenção das dezenas sorteadas, sem chamar esse resultado de combinação idêntica. As listas exibem 40 registros por vez, ordenados por coincidências e número do concurso.
 
-Restauração de backup, conferência financeira de uma aposta no concurso escolhido e sugestões baseadas em cobertura ainda não foram integradas. Nenhum resultado fictício é usado no app. Os arquivos em `tests/fixtures` são respostas reais fixadas somente para testes; não abastecem o painel.
+O módulo Sugestões prioriza o prêmio principal e usa cobertura combinatória exata do lote, conforme descrito abaixo. Restauração de backup e conferência financeira de uma aposta no concurso escolhido ainda não foram integradas. Nenhum resultado fictício é usado no app. Os arquivos em `tests/fixtures` são respostas reais fixadas somente para testes; não abastecem o painel.
+
+## Sugestões: objetivo e limites matemáticos
+
+O módulo usa apostas simples de menor quantidade de dezenas para dar flexibilidade à distribuição do lote. O usuário informa orçamento, preço por aposta e concurso futuro. Os preços padrão foram conferidos nas páginas oficiais da Caixa em 10/11/2026; são editáveis e não são atualizados automaticamente pela API de resultados. O cálculo de custo usa o preço informado. O orçamento é calculado em centavos inteiros e limitado pelo saldo mensal dos registros, se houver orçamento mensal configurado. Sugestões não são apostas feitas nem reservas de saldo.
+
+Nas modalidades em que a aposta simples contém exatamente o total de dezenas sorteadas, cada combinação distinta cobre um resultado principal. Assim, para `m` jogos distintos entre `N` dezenas com `d` sorteadas, a chance do lote é `m / C(N,d)`. Essa chance não melhora pela frequência passada e é igual à de qualquer outro lote com o mesmo número de combinações distintas. Apostas ampliadas de preço proporcional não criam uma vantagem por real; equivalem a várias combinações simples. O gerador evita combinações já integralmente cobertas por apostas registradas no mesmo concurso.
+
+Como segundo objetivo, o gerador busca maior cobertura de resultados que dariam pelo menos `d-1` acertos em algum jogo do lote. Para cada aposta simples, enumera a própria combinação e todas as trocas de uma dezena por uma externa. A união desses conjuntos conta cada resultado uma única vez. Na Mega-Sena, por exemplo, são 325 resultados possíveis por aposta para pelo menos cinco acertos (incluindo os seis). Quando a união atinge a soma dos tamanhos individuais, o lote alcançou o teto matemático dessa cobertura. Caso contrário, a interface informa que não há garantia de ótimo global.
+
+Na Lotomania, cada jogo de 50 dezenas cobre `C(50,20)` resultados principais, e jogos distintos podem ter sobreposição. A união é calculada exatamente por inclusão-exclusão sobre as interseções dos jogos, sem somar chances sobrepostas. Há limite de oito jogos por geração para manter esse cálculo exato e responsivo. O segundo jogo inclui uma opção espelho entre os candidatos. O par complementar atinge a cobertura máxima de 20 acertos para dois jogos. Para lotes maiores, a busca não garante ótimo global. A chance conjunta de 19 acertos não é calculada nessa modalidade.
+
+A busca é sequencial: considera 32 candidatos aleatórios por novo jogo, seleciona o maior ganho de cobertura e desempata pela menor repetição de dezenas no lote. Usa o gerador criptográfico do navegador com amostragem sem viés. Há limite de 20 jogos por geração nas outras modalidades, explicitado antes de gerar. Os limites podem deixar parte do orçamento sem uso. Na Dupla Sena, as probabilidades exibidas são por sorteio.
+
+Depois de fixar o lote, o módulo faz uma comparação exploratória nos últimos 20% da base por número de concurso, contra 32 lotes aleatórios de mesmo tamanho e custo, com as mesmas exclusões. O histórico não é usado para escolher candidatos nem ajustar parâmetros. O comparativo não é apresentado como prova de previsão ou vantagem futura, nem como validação prospectiva. Frequências da base completa são somente descritivas. Os acertos históricos não são convertidos em dinheiro ou lucro.
+
+O usuário pode salvar sugestões como favoritos, conferir cada jogo no histórico ou exportar a análise completa, incluindo os inteiros da contagem combinatória, parâmetros e fonte. Alterar os parâmetros invalida a análise anterior. A geração pode ser cancelada e não grava apostas reais.
+
+Os testes incluem enumeração exaustiva em universos pequenos para verificar união de resultados e inclusão-exclusão, probabilidades de referência, orçamento e duplicidades, apostas ampliadas, cancelamento e regressões do histórico. Essas verificações não constituem garantia de ausência de defeitos nem de premiação.
 
 ## Publicação
 
