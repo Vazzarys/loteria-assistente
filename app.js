@@ -519,12 +519,98 @@ window.addEventListener('online', () => { if (state.user && !mutationPending) { 
 window.addEventListener('offline', () => { $('#sync-status').textContent = 'Sem conexão'; });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && state.user && !$('#editor').open && !mutationPending) { void loadData(); if (Date.now() - resultsState.lastAttempt > 300000) void refreshResults(); } });
 
+function readRecoveryLink() {
+  const url = new URL(window.location.href);
+  const fragment = new URLSearchParams(url.hash.slice(1));
+  const recovery = fragment.get('type') === 'recovery' || url.searchParams.get('type') === 'recovery';
+  const invalid = [fragment, url.searchParams].some(params => params.has('error_code') || params.has('error_description'));
+  if (!recovery && !invalid) return null;
+
+  const accessToken = fragment.get('access_token');
+  const refreshToken = fragment.get('refresh_token');
+  window.history.replaceState(null, '', url.pathname);
+  return recovery && !invalid && accessToken && refreshToken ? { access_token: accessToken, refresh_token: refreshToken } : {};
+}
+
+async function startPasswordRecovery(tokens) {
+  $('#login-box').hidden = true;
+  $('#recovery-box').hidden = false;
+  const status = $('#recovery-status');
+  const form = $('#recovery-form');
+  const errorText = $('#recovery-error');
+  if (!tokens.access_token) {
+    status.textContent = 'Link inválido ou expirado. Solicite um novo e-mail de recuperação no Supabase.';
+    return;
+  }
+
+  // Keep the recovery session in memory, separate from the regular login.
+  const recoveryClient = globalThis.supabase.createClient(CONFIG.url, CONFIG.publishableKey, {
+    auth: { storageKey: 'loteria-password-recovery', persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+  const { data, error } = await recoveryClient.auth.setSession(tokens);
+  if (error || data.session?.user?.id !== CONFIG.ownerId) {
+    status.textContent = 'Não foi possível validar este link para sua conta. Solicite um novo e-mail de recuperação no Supabase.';
+    return;
+  }
+
+  status.textContent = 'Escolha uma nova senha com pelo menos 8 caracteres.';
+  form.hidden = false;
+  const submit = form.querySelector('button');
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (submit.disabled || form.hidden) return;
+    errorText.textContent = '';
+    const fields = new FormData(form);
+    const password = fields.get('new-password');
+    if (password.length < 8 || password !== fields.get('confirm-password')) {
+      errorText.textContent = 'Use pelo menos 8 caracteres e confirme a mesma senha nos dois campos.';
+      return;
+    }
+
+    submit.disabled = true;
+    try {
+      const { error } = await recoveryClient.auth.updateUser({ password });
+      if (error) throw error;
+      form.reset();
+      form.hidden = true;
+      status.textContent = 'Senha redefinida. Volte ao login para entrar com a nova senha.';
+    } catch (error) {
+      if (error.code === 'same_password') {
+        errorText.textContent = 'Escolha uma senha diferente da anterior.';
+      } else if (error.code === 'weak_password') {
+        errorText.textContent = 'O Supabase não aceitou essa senha. Tente uma senha mais forte.';
+      } else if ([401, 403].includes(error.status)) {
+        form.reset();
+        form.hidden = true;
+        status.textContent = 'A sessão de recuperação expirou. Solicite um novo e-mail no Supabase.';
+      } else {
+        errorText.textContent = 'Não foi possível salvar a senha. Tente novamente.';
+      }
+    } finally {
+      submit.disabled = false;
+    }
+  });
+}
+
+const recoveryLink = readRecoveryLink();
 try {
   if (!globalThis.supabase?.createClient) throw new Error('Não foi possível carregar o cliente de conexão. Atualize a página.');
-  client = globalThis.supabase.createClient(CONFIG.url, CONFIG.publishableKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } });
-  client.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_OUT' || event === 'SIGNED_IN') setTimeout(() => { void activateSession(session); }, 0);
-  });
-  const { data, error } = await client.auth.getSession(); if (error) throw error;
-  await activateSession(data.session);
-} catch (error) { $('#login-error').textContent = errorMessage(error); }
+  if (recoveryLink) {
+    await startPasswordRecovery(recoveryLink);
+  } else {
+    client = globalThis.supabase.createClient(CONFIG.url, CONFIG.publishableKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } });
+    client.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || event === 'SIGNED_IN') setTimeout(() => { void activateSession(session); }, 0);
+    });
+    const { data, error } = await client.auth.getSession(); if (error) throw error;
+    await activateSession(data.session);
+  }
+} catch (error) {
+  if (recoveryLink) {
+    $('#login-box').hidden = true;
+    $('#recovery-box').hidden = false;
+    $('#recovery-status').textContent = 'Não foi possível validar o link. Solicite um novo e-mail de recuperação no Supabase.';
+  } else {
+    $('#login-error').textContent = errorMessage(error);
+  }
+}
