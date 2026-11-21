@@ -20,3 +20,5 @@ html[data-theme=dark]{--bg:#15211c;--surface:#1e2c25;--text:#e0eadf;--muted:#a0a
 
 .bet-check-summary{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:18px;border:1px solid var(--border);background:var(--bg);border-radius:12px;margin:18px 0}.bet-check-summary>div>strong{display:block;font-size:15px}.bet-check-summary>div:last-child{min-width:125px;text-align:right}.bet-check-summary p{font-size:12px;margin:7px 0 0}.bet-check-summary .muted{display:block;font-size:10px;margin-bottom:6px}.bet-check-summary.awarded{border-color:var(--game)}.bet-check-draw{padding:10px 0 22px;border-bottom:1px solid var(--border);margin-bottom:18px}
 @media(max-width:500px){.bet-check-summary{padding:13px;gap:12px;align-items:start}.bet-check-summary>div>strong{font-size:12px}.bet-check-summary>div:last-child{min-width:95px}.bet-check-summary p{font-size:10px}.bet-check-summary .muted{font-size:9px}.bet-check-draw .section-heading{align-items:start;gap:10px}.bet-check-draw .section-heading h3{font-size:16px}}
+
+.login-box .recovery-request{width:100%;justify-content:center;margin:12px 0 0}

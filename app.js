@@ -445,6 +445,7 @@ async function logout() {
 
 $('#login-form').addEventListener('submit', async event => {
   event.preventDefault(); if (signingIn || !client) return;
+  $('#login-status').hidden = true;
   signingIn = true; const button = event.target.querySelector('button'); button.disabled = true; $('#login-error').textContent = '';
   try {
     const { data, error } = await client.auth.signInWithPassword({ email: $('#email').value.trim(), password: $('#password').value });
@@ -452,6 +453,38 @@ $('#login-form').addEventListener('submit', async event => {
     $('#password').value = ''; await activateSession(data.session);
   } catch (error) { $('#login-error').textContent = errorMessage(error); }
   finally { signingIn = false; button.disabled = false; }
+});
+$('#request-password-reset').addEventListener('click', async event => {
+  const button = event.currentTarget;
+  if (!client || button.disabled || signingIn) return;
+
+  const email = $('#email');
+  const feedback = $('#login-status');
+  const errorText = $('#login-error');
+  feedback.hidden = true;
+  errorText.textContent = '';
+  if (!email.checkValidity()) {
+    errorText.textContent = 'Preencha o campo E-mail com o endereço cadastrado.';
+    email.focus();
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = 'Solicitando link…';
+  try {
+    const redirectTo = new URL('./', window.location.href).href;
+    const { error } = await client.auth.resetPasswordForEmail(email.value.trim(), { redirectTo });
+    if (error) throw error;
+    feedback.textContent = 'Se o e-mail estiver cadastrado, você receberá um link para redefinir a senha. Confira também a caixa de spam.';
+    feedback.hidden = false;
+  } catch (error) {
+    errorText.textContent = error.status === 429
+      ? 'Aguarde alguns minutos antes de solicitar outro link.'
+      : 'Não foi possível solicitar o link pelo app. Você pode enviá-lo em Authentication → Users no Supabase.';
+  } finally {
+    button.textContent = 'Esqueci minha senha';
+    button.disabled = false;
+  }
 });
 $('#editor-form').addEventListener('submit', saveEditor);
 $('#close-editor').addEventListener('click', () => { if (!mutationPending) $('#editor').close(); });
@@ -598,12 +631,13 @@ try {
   if (recoveryLink) {
     await startPasswordRecovery(recoveryLink);
   } else {
-    client = globalThis.supabase.createClient(CONFIG.url, CONFIG.publishableKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } });
+    client = globalThis.supabase.createClient(CONFIG.url, CONFIG.publishableKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, flowType: 'implicit' } });
     client.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT' || event === 'SIGNED_IN') setTimeout(() => { void activateSession(session); }, 0);
     });
     const { data, error } = await client.auth.getSession(); if (error) throw error;
     await activateSession(data.session);
+    $('#request-password-reset').disabled = false;
   }
 } catch (error) {
   if (recoveryLink) {

@@ -7,7 +7,7 @@
   <meta name="description" content="Seu espaço pessoal para organizar jogos, favoritos e apostas nas loterias.">
   <title>Loteria Assistente</title>
   <link rel="icon" href="./icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./styles.css?v=0.6.0">
+  <link rel="stylesheet" href="./styles.css?v=0.6.2">
 </head>
 <body>
   <section id="login-screen" class="login-layout">
@@ -18,7 +18,9 @@
     </div>
     <div class="login-panel"><div class="login-box" id="login-box"><span class="pill">ACESSO PESSOAL</span><h2>Bem-vindo, Junior.</h2><p>Entre para acessar seus jogos no computador e no celular.</p>
       <form id="login-form"><label>E-mail<input id="email" type="email" autocomplete="username" required placeholder="Seu e-mail cadastrado"></label><label>Senha<input id="password" type="password" autocomplete="current-password" required placeholder="Sua senha"></label><button class="primary" type="submit">Entrar no meu espaço <span>↗</span></button></form>
-      <p id="login-error" role="alert" class="error"></p><p class="fine">Use o usuário criado em Authentication no Supabase.</p>
+      <button class="secondary recovery-request" id="request-password-reset" type="button" disabled>Esqueci minha senha</button>
+      <p id="login-error" role="alert" class="error"></p>
+      <p id="login-status" role="status" hidden></p>
     </div><div class="login-box" id="recovery-box" hidden>
       <h2>Redefinir senha</h2>
       <p id="recovery-status" role="status">Validando o link de recuperação…</p>
@@ -42,6 +44,6 @@
   <dialog id="bet-check-dialog" class="results-dialog"><div class="dialog-header"><div><span class="eyebrow">CONFERÊNCIA DA APOSTA</span><h2 id="bet-check-title"></h2></div><button type="button" class="icon-button" id="close-bet-check" aria-label="Fechar conferência da aposta">×</button></div><div id="bet-check-content"></div></dialog>
   <div id="toast" role="status" aria-live="polite" hidden></div>
   <script src="./vendor/supabase.js"></script>
-  <script type="module" src="./app.js?v=0.6.1"></script>
+  <script type="module" src="./app.js?v=0.6.2"></script>
 </body>
 </html>
