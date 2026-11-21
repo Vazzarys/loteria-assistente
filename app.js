@@ -1,6 +1,6 @@
 import { CONFIG } from './config.js';
 import { GAMES, validateNumbers, jackpotOdds, generateNumbers, localDate, weekBounds, money, dateLabel, escapeHTML as esc, financialSummary } from './core.js';
-import { SOURCE, RESULT_GAMES, loadGameWeek, weeklyRecords, latestWeeklyWinner, timestampLabel, readCache, saveCache, specialEstimate } from './results.js';
+import { SOURCE, RESULT_GAMES, fetchOfficial, loadGameWeek, weeklyRecords, latestWeeklyWinner, timestampLabel, readCache, saveCache, specialEstimate } from './results.js';
 import { loadHistorical, checkCombination, baseGame } from './history.js';
 import { SIMPLE_PRICES, PRICE_CHECKED, PRICE_SOURCES, batchLimit, planBudget, generatePortfolio, historicalAudit, oddsLabel } from './suggestions.js';
 import { analyzeStatistics } from './statistics.js';
@@ -219,16 +219,30 @@ function monthlyRemaining() {
 }
 function suggestions() {
   const s=suggestionState,g=GAMES[s.game],remaining=monthlyRemaining();
-  return `<div class="game-tabs" role="group" aria-label="Modalidade das sugestões">${Object.entries(GAMES).map(([game,g])=>`<button class="game-tab ${s.game===game?'active':''}" style="${gameStyle(game)}" data-suggest-game="${game}" ${s.busy?'disabled':''}>${g.name}</button>`).join('')}</div><section class="hero suggestion-hero"><div><span class="eyebrow">OBJETIVO: PRÊMIO PRINCIPAL</span><h2>Cobertura calculada, dentro do seu limite.</h2><p>Apostas simples distintas. O segundo critério é cobrir resultados que acertariam a faixa imediatamente abaixo${s.game==='lotomania'?' — na Lotomania, o cálculo do lote se concentra nos 20 acertos':''}.</p><button class="secondary statistics-entry" data-statistics="${s.game}">Estatísticas e frequências ↗</button></div><span class="hero-mark" aria-hidden="true">✧</span></section><div class="suggestion-setup"><section class="panel"><h2>Planejar um lote · ${g.name}</h2><form id="suggestion-form"><div class="fields-row"><label>Limite deste lote (R$)<input name="budget" data-suggest-input="budget" type="number" min="0.01" max="1000000" step="0.01" value="${esc(s.budget)}" placeholder="Informe seu limite" required ${s.busy?'disabled':''}></label><label>Preço por aposta (R$)<input name="price" data-suggest-input="price" type="number" min="0.01" max="1000000" step="0.01" value="${esc(s.price)}" required ${s.busy?'disabled':''}></label></div><label>Concurso de destino<input name="contest" data-suggest-input="contest" type="number" min="1" max="2147483647" step="1" value="${esc(s.contest || suggestionContest(s.game))}" required ${s.busy?'disabled':''}></label><p class="fine">Preço de referência da Caixa conferido em ${dateLabel(PRICE_CHECKED)}. <a class="official-link" href="https://loterias.caixa.gov.br/Paginas/${PRICE_SOURCES[s.game]}.aspx" target="_blank" rel="noopener noreferrer">Conferir preço e regras ↗</a>. Atualize o campo se necessário; o custo usa o preço informado. ${g.min} dezenas por jogo. Limite de ${batchLimit(s.game)} jogos por geração${s.game==='lotomania'?' para calcular a cobertura por inclusão-exclusão':''}.</p>${remaining!==null?`<p class="fine">Saldo mensal disponível pelos registros: <strong>${money(remaining/100)}</strong>. Esse saldo também limita o lote.</p>`:''}<button class="primary" type="submit" ${s.busy?'disabled':''}>${s.busy?'Calculando…':'Gerar sugestões com cobertura'}</button>${s.busy?'<button class="secondary" type="button" data-action="cancel-suggestions">Cancelar</button>':''}</form><p id="suggestion-error" class="error" role="alert">${esc(s.error||'')}</p><p id="suggestion-progress" class="muted" role="status">${s.busy?esc(s.progress):''}</p></section><section class="panel suggestion-method"><span class="eyebrow">COMO A ESCOLHA FUNCIONA</span><h2>Combinações, não previsões.</h2><ol><li>Calcula quantas apostas simples cabem no seu limite.</li><li>Gera candidatos aleatórios e evita repetir jogos já cobertos pelas suas apostas registradas no concurso.</li><li>${s.game==='lotomania'?'Seleciona por cobertura exata de resultados com 20 acertos.':'Preserva combinações distintas para o prêmio principal e busca maior cobertura de '+(g.drawn-1)+' ou mais acertos entre os candidatos avaliados.'}</li><li>Depois da escolha, compara o lote com o histórico e com 32 lotes aleatórios de mesmo custo.</li></ol><p class="fine">As dezenas não são escolhidas pela frequência passada. Para o mesmo número de apostas simples distintas, a chance do prêmio principal é igual${s.game==='lotomania'?' nas modalidades com aposta simples igual ao tamanho do sorteio; a Lotomania exige outro cálculo':''}. A distribuição muda a cobertura conjunta das demais faixas.</p></section></div><div id="suggestions-output">${s.result?suggestionOutput():''}</div>`;
+  return `<div class="game-tabs" role="group" aria-label="Modalidade das sugestões">${Object.entries(GAMES).map(([game,g])=>`<button class="game-tab ${s.game===game?'active':''}" style="${gameStyle(game)}" data-suggest-game="${game}" ${s.busy?'disabled':''}>${g.name}</button>`).join('')}</div><section class="hero suggestion-hero"><div><span class="eyebrow">OBJETIVO: PRÊMIO PRINCIPAL</span><h2>Cobertura calculada, dentro do seu limite.</h2><p>Apostas simples distintas. O segundo critério é cobrir resultados que acertariam a faixa imediatamente abaixo${s.game==='lotomania'?' — na Lotomania, o cálculo do lote se concentra nos 20 acertos':''}.</p><button class="secondary statistics-entry" data-statistics="${s.game}">Estatísticas e frequências ↗</button></div><span class="hero-mark" aria-hidden="true">✧</span></section><div class="suggestion-setup"><section class="panel"><h2>Planejar um lote · ${g.name}</h2><form id="suggestion-form"><div class="fields-row"><label>Limite deste lote (R$)<input name="budget" data-suggest-input="budget" type="number" min="0.01" max="1000000" step="0.01" value="${esc(s.budget)}" placeholder="Informe seu limite" required ${s.busy?'disabled':''}></label><label>Preço por aposta (R$)<input name="price" data-suggest-input="price" type="number" min="0.01" max="1000000" step="0.01" value="${esc(s.price)}" required ${s.busy?'disabled':''}></label></div><label>Concurso de destino<input name="contest" data-suggest-input="contest" type="number" min="1" max="2147483647" step="1" value="${esc(s.contest || suggestionContest(s.game))}" required ${s.busy?'disabled':''}></label><p class="fine">Preço de referência da Caixa conferido em ${dateLabel(PRICE_CHECKED)}. <a class="official-link" href="https://loterias.caixa.gov.br/Paginas/${PRICE_SOURCES[s.game]}.aspx" target="_blank" rel="noopener noreferrer">Conferir preço e regras ↗</a>. Atualize o campo se necessário; o custo usa o preço informado. ${g.min} dezenas por jogo. Limite de ${batchLimit(s.game)} jogos por geração${s.game==='lotomania'?' para calcular a cobertura por inclusão-exclusão':''}.</p>${remaining!==null?`<p class="fine">Saldo mensal disponível pelos registros: <strong>${money(remaining/100)}</strong>. Esse saldo também limita o lote.</p>`:''}<button class="primary" type="submit" ${s.busy?'disabled':''}>${s.busy?'Calculando…':'Gerar sugestões com cobertura'}</button>${s.busy?'<button class="secondary" type="button" data-action="cancel-suggestions">Cancelar</button>':''}</form><p id="suggestion-error" class="error" role="alert">${esc(s.error||'')}</p><p id="suggestion-progress" class="muted" role="status">${s.busy?esc(s.progress):''}</p></section><section class="panel suggestion-method"><span class="eyebrow">COMO A ESCOLHA FUNCIONA</span><h2>Combinações, não previsões.</h2><ol><li>Calcula quantas apostas simples cabem no seu limite.</li><li>Gera candidatos aleatórios e evita repetir jogos já cobertos pelas suas apostas registradas no concurso.</li><li>${s.game==='lotomania'?'Seleciona por cobertura exata de resultados com 20 acertos.':'Preserva combinações distintas para o prêmio principal e busca maior cobertura de '+(g.drawn-1)+' ou mais acertos entre os candidatos avaliados.'}</li><li>Mostra o lote assim que a cobertura é calculada e compara o histórico em seguida.</li></ol><p class="fine">As dezenas não são escolhidas pela frequência passada. Para o mesmo número de apostas simples distintas, a chance do prêmio principal é igual${s.game==='lotomania'?' nas modalidades com aposta simples igual ao tamanho do sorteio; a Lotomania exige outro cálculo':''}. A distribuição muda a cobertura conjunta das demais faixas.</p></section></div><div id="suggestions-output">${s.result?suggestionOutput():''}</div>`;
 }
 function suggestionOutput() {
   const r=suggestionState.result;if(!r)return '';
-  const g=GAMES[r.game],cov=r.generated.coverage,audit=r.audit;
+  const g=GAMES[r.game],cov=r.generated.coverage;
   const mainMax=cov.main===cov.mainUpperBound,nearMax=cov.near!==null && cov.near===cov.nearUpperBound;
-  return `<section class="suggestion-results" style="${gameStyle(r.game)}"><div class="section-heading"><div><h2>Seu lote · concurso ${r.contest}</h2><p>${r.generated.tickets.length} jogos distintos de ${g.min} dezenas. Nada foi apostado ou debitado.</p></div><button class="small-button" data-action="export-suggestions">↓ Exportar análise</button></div><div class="stats suggestion-stats"><div class="stat"><span class="stat-label">Custo estimado do lote</span><strong class="stat-value">${money(r.plan.costCents/100)}</strong><span class="stat-note">${money(r.plan.priceCents/100)} por jogo</span></div><div class="stat"><span class="stat-label">Chance do prêmio principal</span><strong class="stat-value suggestion-odds">${oddsLabel(cov.main,cov.total)}</strong><span class="stat-note">Do lote inteiro${r.game==='duplasena'?' · por sorteio':''}</span></div><div class="stat"><span class="stat-label">${cov.near!==null?`Chance de ${cov.nearHits} ou mais acertos`:'Cobertura principal do lote'}</span><strong class="stat-value suggestion-odds">${cov.near!==null?oddsLabel(cov.near,cov.total):mainMax?'Teto atingido':'Calculada'}</strong><span class="stat-note">${cov.near!==null?'União exata, incluindo o prêmio principal': 'Contagem exata de resultados com 20 acertos'}${r.game==='duplasena'?' · por sorteio':''}</span></div><div class="stat"><span class="stat-label">Saldo não utilizado do limite</span><strong class="stat-value">${money(r.plan.unusedCents/100)}</strong><span class="stat-note">Não é necessário gastar o limite inteiro</span></div></div><div class="notice"><strong>${r.game==='lotomania'?(mainMax?'O lote atingiu o teto de cobertura de 20 acertos para essa quantidade de apostas.':'Lote escolhido pela maior cobertura de 20 acertos entre os candidatos avaliados; não há prova de ótimo global.'):`${mainMax?'Cobertura máxima do prêmio principal para esta quantidade de apostas simples distintas. ':''}${nearMax?`O lote também atingiu o teto combinatório de cobertura de ${cov.nearHits} ou mais acertos.`:`A cobertura de ${cov.nearHits} ou mais acertos foi medida exatamente; a busca não garante ótimo global.`}`}</strong><br>Hipótese: todos os resultados válidos são equiprováveis. As chances incluem somente os jogos deste lote, sem somar suas apostas anteriores.</div>${r.plan.limited?`<p class="fine">O orçamento comportava mais jogos; foi aplicado o limite de ${batchLimit(r.game)} por geração. O valor restante não foi utilizado.</p>`:''}${!r.history.currentConfirmed||!r.history.coverage.complete?`<div class="notice">Histórico disponível até o concurso ${r.history.coverage.last}. ${r.history.currentConfirmed?'Há lacunas na base.':'Novos concursos não foram confirmados agora.'} O retrospecto abaixo usa somente os registros disponíveis; isso não altera o cálculo combinatório.</div>`:''}<div class="suggestion-ticket-grid">${r.generated.tickets.map((ticket,index)=>`<article class="record"><div class="record-heading"><h3>Jogo ${String(index+1).padStart(2,'0')}</h3><span class="muted">${money(r.plan.priceCents/100)}</span></div>${balls(r.game,ticket)}<div class="record-actions"><button class="small-button" data-save-suggestion="${index}">♡ Salvar favorito</button><button class="small-button" data-check-suggestion="${index}">Conferir histórico</button><button class="small-button" data-use-suggestion="${index}">Usar no editor</button></div></article>`).join('')}</div><section class="panel retrospective-panel"><h2>Retrospecto descritivo · sem escolher pelo passado</h2><p class="muted">Últimos 20% da base: concursos ${audit.from} a ${audit.to}, ${audit.observed.draws.toLocaleString('pt-BR')} sorteios. ${baseGame(r.game)==='megasena'?'Referência: toda a Mega-Sena, incluindo as edições da Virada.':''}</p><div class="audit-comparison"><div><span>Seu lote: sorteios com ${g.drawn-1} ou mais coincidências</span><strong>${audit.observed.near}</strong></div><div><span>Mediana de ${audit.baseline.count} lotes aleatórios do mesmo custo</span><strong>${audit.baseline.median}</strong></div><div><span>Intervalo observado nos lotes aleatórios</span><strong>${audit.baseline.min} a ${audit.baseline.max}</strong></div></div><p class="fine">A geração não consultou o histórico para selecionar as dezenas. Este comparativo exploratório, feito depois da escolha, não comprova previsão nem vantagem futura. A probabilidade acima vem da contagem exata de resultados possíveis.</p><details><summary>Contagens de coincidências do lote no recorte</summary><div class="audit-histogram">${audit.observed.histogram.map((count,hits)=>`<span>${hits} números: <strong>${count.toLocaleString('pt-BR')}</strong></span>`).join('')}</div><p class="fine">Cada sorteio conta uma vez, pela maior coincidência entre os jogos do lote.</p></details><details><summary>Frequências do histórico completo disponível</summary><p class="fine">Informação descritiva, sem peso na seleção das dezenas. ${audit.fullDraws.toLocaleString('pt-BR')} sorteios consultados.</p><div class="frequency-lists"><p>Mais frequentes: ${audit.frequencies.slice(0,5).map(f=>`${formatNumber(f.number)} (${f.count})`).join(' · ')}</p><p>Menos frequentes: ${[...audit.frequencies].reverse().slice(0,5).map(f=>`${formatNumber(f.number)} (${f.count})`).join(' · ')}</p></div></details><details><summary>Ver método e contagens verificáveis</summary><p class="fine">${esc(r.generated.method)} · ${r.generated.candidatesEvaluated} candidatos avaliados. Busca sequencial por cobertura marginal, com desempate pela menor repetição de dezenas no lote. Não usa treino preditivo.</p><p class="exact-count">Resultados principais cobertos: ${cov.main.toString()} de ${cov.total.toString()}.</p>${cov.near!==null?`<p class="exact-count">Resultados com ${cov.nearHits} ou mais acertos: ${cov.near.toString()} de ${cov.total.toString()}.</p>`:''}<p class="fine">Na Mega-Sena e demais apostas simples com tamanho igual ao sorteio, a união da faixa imediatamente abaixo é enumerada sem contar resultados duas vezes. Na Lotomania, aplica-se inclusão-exclusão sobre os subconjuntos de 20 dezenas. Os decimais das chances são arredondados para apresentação.</p></details></section></section>`;
+  return `<section class="suggestion-results" style="${gameStyle(r.game)}"><div class="section-heading"><div><h2>Seu lote · concurso ${r.contest}</h2><p>${r.generated.tickets.length} jogos distintos de ${g.min} dezenas. Nada foi apostado ou debitado.</p></div><button class="small-button" data-action="export-suggestions">↓ Exportar análise</button></div><div class="stats suggestion-stats"><div class="stat"><span class="stat-label">Custo estimado do lote</span><strong class="stat-value">${money(r.plan.costCents/100)}</strong><span class="stat-note">${money(r.plan.priceCents/100)} por jogo</span></div><div class="stat"><span class="stat-label">Chance do prêmio principal</span><strong class="stat-value suggestion-odds">${oddsLabel(cov.main,cov.total)}</strong><span class="stat-note">Do lote inteiro${r.game==='duplasena'?' · por sorteio':''}</span></div><div class="stat"><span class="stat-label">${cov.near!==null?`Chance de ${cov.nearHits} ou mais acertos`:'Cobertura principal do lote'}</span><strong class="stat-value suggestion-odds">${cov.near!==null?oddsLabel(cov.near,cov.total):mainMax?'Teto atingido':'Calculada'}</strong><span class="stat-note">${cov.near!==null?'União exata, incluindo o prêmio principal': 'Contagem exata de resultados com 20 acertos'}${r.game==='duplasena'?' · por sorteio':''}</span></div><div class="stat"><span class="stat-label">Saldo não utilizado do limite</span><strong class="stat-value">${money(r.plan.unusedCents/100)}</strong><span class="stat-note">Não é necessário gastar o limite inteiro</span></div></div><div class="notice"><strong>${r.game==='lotomania'?(mainMax?'O lote atingiu o teto de cobertura de 20 acertos para essa quantidade de apostas.':'Lote escolhido pela maior cobertura de 20 acertos entre os candidatos avaliados; não há prova de ótimo global.'):`${mainMax?'Cobertura máxima do prêmio principal para esta quantidade de apostas simples distintas. ':''}${nearMax?`O lote também atingiu o teto combinatório de cobertura de ${cov.nearHits} ou mais acertos.`:`A cobertura de ${cov.nearHits} ou mais acertos foi medida exatamente; a busca não garante ótimo global.`}`}</strong><br>Hipótese: todos os resultados válidos são equiprováveis. As chances incluem somente os jogos deste lote, sem somar suas apostas anteriores.</div>${r.plan.limited?`<p class="fine">O orçamento comportava mais jogos; foi aplicado o limite de ${batchLimit(r.game)} por geração. O valor restante não foi utilizado.</p>`:''}<div class="suggestion-ticket-grid">${r.generated.tickets.map((ticket,index)=>`<article class="record"><div class="record-heading"><h3>Jogo ${String(index+1).padStart(2,'0')}</h3><span class="muted">${money(r.plan.priceCents/100)}</span></div>${balls(r.game,ticket)}<div class="record-actions"><button class="small-button" data-save-suggestion="${index}">♡ Salvar favorito</button><button class="small-button" data-check-suggestion="${index}">Conferir histórico</button><button class="small-button" data-use-suggestion="${index}">Usar no editor</button></div></article>`).join('')}</div><div id="suggestion-audit" aria-live="polite">${suggestionAuditOutput(r)}</div><section class="panel retrospective-panel"><details><summary>Ver método e contagens verificáveis</summary><p class="fine">${esc(r.generated.method)} · ${r.generated.candidatesEvaluated} candidatos avaliados. Busca sequencial por cobertura marginal, com desempate pela menor repetição de dezenas no lote. Não usa treino preditivo.</p><p class="exact-count">Resultados principais cobertos: ${cov.main.toString()} de ${cov.total.toString()}.</p>${cov.near!==null?`<p class="exact-count">Resultados com ${cov.nearHits} ou mais acertos: ${cov.near.toString()} de ${cov.total.toString()}.</p>`:''}<p class="fine">Na Mega-Sena e demais apostas simples com tamanho igual ao sorteio, a união da faixa imediatamente abaixo é enumerada sem contar resultados duas vezes. Na Lotomania, aplica-se inclusão-exclusão sobre os subconjuntos de 20 dezenas. Os decimais das chances são arredondados para apresentação.</p></details></section></section>`;
+}
+function suggestionAuditOutput(result) {
+  if (!result.audit) {
+    const message = result.auditStatus === 'failed'
+      ? 'Retrospecto indisponível nesta consulta.'
+      : 'Carregando o histórico e comparando com lotes aleatórios…';
+    return `<section class="panel retrospective-panel"><h2>Retrospecto</h2><p class="muted">${message}</p></section>`;
+  }
+  const r = result, g = GAMES[r.game], audit = r.audit;
+  return `${!r.history.currentConfirmed||!r.history.coverage.complete?`<div class="notice">Histórico disponível até o concurso ${r.history.coverage.last}. ${r.history.currentConfirmed?'Há lacunas na base.':'Novos concursos não foram confirmados agora.'} O retrospecto abaixo usa somente os registros disponíveis; isso não altera o cálculo combinatório.</div>`:''}<section class="panel retrospective-panel"><h2>Retrospecto descritivo · sem escolher pelo passado</h2><p class="muted">Últimos 20% da base: concursos ${audit.from} a ${audit.to}, ${audit.observed.draws.toLocaleString('pt-BR')} sorteios. ${baseGame(r.game)==='megasena'?'Referência: toda a Mega-Sena, incluindo as edições da Virada.':''}</p><div class="audit-comparison"><div><span>Seu lote: sorteios com ${g.drawn-1} ou mais coincidências</span><strong>${audit.observed.near}</strong></div><div><span>Mediana de ${audit.baseline.count} lotes aleatórios do mesmo custo</span><strong>${audit.baseline.median}</strong></div><div><span>Intervalo observado nos lotes aleatórios</span><strong>${audit.baseline.min} a ${audit.baseline.max}</strong></div></div><p class="fine">A geração não consultou o histórico para selecionar as dezenas. Este comparativo exploratório, feito depois da escolha, não comprova previsão nem vantagem futura. A probabilidade acima vem da contagem exata de resultados possíveis.</p><details><summary>Contagens de coincidências do lote no recorte</summary><div class="audit-histogram">${audit.observed.histogram.map((count,hits)=>`<span>${hits} números: <strong>${count.toLocaleString('pt-BR')}</strong></span>`).join('')}</div><p class="fine">Cada sorteio conta uma vez, pela maior coincidência entre os jogos do lote.</p></details><details><summary>Frequências do histórico completo disponível</summary><p class="fine">Informação descritiva, sem peso na seleção das dezenas. ${audit.fullDraws.toLocaleString('pt-BR')} sorteios consultados.</p><div class="frequency-lists"><p>Mais frequentes: ${audit.frequencies.slice(0,5).map(f=>`${formatNumber(f.number)} (${f.count})`).join(' · ')}</p><p>Menos frequentes: ${[...audit.frequencies].reverse().slice(0,5).map(f=>`${formatNumber(f.number)} (${f.count})`).join(' · ')}</p></div></details></section>`;
 }
 function cancelSuggestions(rerender=true) {
-  suggestionState.controller?.abort();suggestionState.run++;suggestionState.busy=false;suggestionState.progress='';
+  suggestionState.controller?.abort();
+  suggestionState.controller = null;
+  suggestionState.run++;
+  suggestionState.busy = false;
+  suggestionState.progress = '';
   if(rerender&&state.page==='suggestions')render();
 }
 async function runSuggestions(form) {
@@ -239,20 +253,78 @@ async function runSuggestions(form) {
   let budget,price,contest;
   try {budget=cents(s.budget);price=cents(s.price);contest=Number(s.contest);if(!Number.isInteger(contest)||contest<1||contest>2147483647)throw new Error('Informe um concurso válido.');planBudget(s.game,budget,price,monthlyRemaining());}
   catch(error){s.error=errorMessage(error);render();return;}
-  const run=++s.run;s.controller=new AbortController();s.busy=true;s.progress='Carregando e verificando a base de sorteios…';render();
+  cancelSuggestions(false);
+  const run = s.run;
+  const controller = new AbortController();
+  s.controller = controller;
+  const { signal } = controller;
+  const game = s.game;
+  const isCurrent = () => run === s.run && Boolean(state.user);
+  s.busy = true;
+  s.progress = 'Validando o concurso na Caixa…';
+  render();
+
+  let result, exclusions;
   try {
-    const history=await loadHistorical(s.game,{signal:s.controller.signal});
-    if(contest<=history.coverage.last)throw new Error(`O concurso ${contest} já consta no histórico. Informe um concurso futuro, superior a ${history.coverage.last}.`);
-    const plan=planBudget(s.game,budget,price,monthlyRemaining());
-    const exclusions=state.bets.filter(b=>baseGame(b.game)===baseGame(s.game)&&b.contest===contest).map(b=>b.numbers);
-    const generated=await generatePortfolio(s.game,plan.count,{exclusions,signal:s.controller.signal,onProgress:p=>{s.progress=`Calculando cobertura: jogo ${p.done} de ${p.total}…`;const label=$('#suggestion-progress');if(label)label.textContent=s.progress;}});
-    s.progress='Comparando com 32 lotes aleatórios do mesmo custo…';if($('#suggestion-progress'))$('#suggestion-progress').textContent=s.progress;
-    const audit=await historicalAudit(s.game,generated.tickets,history,{exclusions,signal:s.controller.signal});
-    if(run!==s.run||!state.user)return;
-    s.result={game:s.game,contest,plan,generated,audit,history:{coverage:history.coverage,currentConfirmed:history.currentConfirmed,checkedAt:history.checkedAt,source:history.source},createdAt:new Date().toISOString()};
-  } catch(error){if(run===s.run&&error.name!=='AbortError')s.error=errorMessage(error);}
-  finally{if(run===s.run){s.busy=false;if(state.page==='suggestions')render();}}
+    const latest = await fetchOfficial(baseGame(game), null, (url, options) => fetch(url, {
+      ...options, signal: AbortSignal.any([signal, options.signal]),
+    }));
+    if (!isCurrent()) return;
+    if (contest <= latest.contest) {
+      throw new Error(`O concurso ${contest} já foi publicado. Último resultado: ${latest.contest}.`);
+    }
+
+    const target = game === 'megadavirada'
+      ? specialEstimate({ latest, fetchedAt: new Date().toISOString() })
+      : latest.next;
+    const targetDate = target?.drawDate || target?.date;
+    if (!target?.contest || !targetDate || targetDate < localDate()) {
+      throw new Error('O próximo concurso desta modalidade ainda não pôde ser confirmado na Caixa.');
+    }
+    if (contest !== target.contest) {
+      throw new Error(`O próximo concurso confirmado para ${GAMES[game].name} é ${target.contest}. Confira o número informado.`);
+    }
+    const contestValidation = { contest, date: targetDate, source: target.source || latest.source };
+    const plan = planBudget(game, budget, price, monthlyRemaining());
+    exclusions = state.bets.filter(b => baseGame(b.game) === baseGame(game) && b.contest === contest).map(b => b.numbers);
+    const generated = await generatePortfolio(game, plan.count, { exclusions, signal, onProgress: ({ done, total }) => {
+      if (!isCurrent()) return;
+      s.progress = `Calculando cobertura: jogo ${done} de ${total}…`;
+      const label = $('#suggestion-progress');
+      if (label) label.textContent = s.progress;
+    } });
+    if (!isCurrent()) return;
+    result = { game, contest, contestValidation, plan, generated, audit: null, auditStatus: 'loading', history: null, createdAt: new Date().toISOString() };
+    s.result = result;
+  } catch (error) {
+    if (isCurrent() && error.name !== 'AbortError') s.error = errorMessage(error);
+  } finally {
+    if (isCurrent()) {
+      s.busy = false;
+      s.progress = '';
+      if (state.page === 'suggestions') render();
+    }
+  }
+  if (!result || !isCurrent()) return;
+
+  try {
+    const history = await loadHistorical(game, { signal });
+    const audit = await historicalAudit(game, result.generated.tickets, history, { exclusions, signal });
+    if (!isCurrent()) return;
+    result.history = { coverage: history.coverage, currentConfirmed: history.currentConfirmed, checkedAt: history.checkedAt, source: history.source };
+    result.audit = audit;
+    result.auditStatus = 'ready';
+  } catch {
+    if (isCurrent()) result.auditStatus = 'failed';
+  } finally {
+    if (isCurrent()) {
+      s.controller = null;
+      const region = $('#suggestion-audit');
+      if (region) region.innerHTML = suggestionAuditOutput(result);
+    }
+  }
 }
+
 function useSuggestion(index,action) {
   const r=suggestionState.result,ticket=r?.generated.tickets[index];if(!ticket)return;
   if(action==='check'){openHistory(r.game,ticket);return;}
@@ -522,7 +594,7 @@ document.addEventListener('click', event => {
   if (d.results) openResults(d.results);
   if (d.game) setGame(d.game);
   if(d.statistics)openStatistics(d.statistics);
-  if(d.suggestGame && GAMES[d.suggestGame] && !suggestionState.busy){suggestionState.game=d.suggestGame;suggestionState.price=(SIMPLE_PRICES[d.suggestGame]/100).toFixed(2);suggestionState.contest='';suggestionState.result=null;suggestionState.error=null;render();}
+  if(d.suggestGame && GAMES[d.suggestGame] && !suggestionState.busy){cancelSuggestions(false);suggestionState.game=d.suggestGame;suggestionState.price=(SIMPLE_PRICES[d.suggestGame]/100).toFixed(2);suggestionState.contest='';suggestionState.result=null;suggestionState.error=null;render();}
   if(d.saveSuggestion!==undefined)useSuggestion(Number(d.saveSuggestion),'save');
   if(d.checkSuggestion!==undefined)useSuggestion(Number(d.checkSuggestion),'check');
   if(d.useSuggestion!==undefined)useSuggestion(Number(d.useSuggestion),'use');
@@ -547,7 +619,7 @@ document.addEventListener('click', event => {
   const actions = { 'check-bets': () => void refreshBetChecks(true), 'refresh-statistics': () => void loadStatistics(), 'cancel-suggestions': () => cancelSuggestions(), 'export-suggestions': exportSuggestions, 'check-history': () => openHistory(state.game, state.numbers), 'refresh-history': () => void runHistory(), 'more-history': () => { historyState.limit += 40; renderHistory(); }, generate: () => { state.numbers = generateNumbers(state.game, state.quantity); render(); }, clear: () => { state.numbers = []; render(); }, favorite: () => openEditor('favorite'), bet: () => openEditor('bet'), export: exportRecords, 'refresh-results': () => void refreshResults(), logout: () => void logout(), reload: () => void loadData() };
   if (d.action) actions[d.action]?.();
 });
-document.addEventListener('input',event=>{const key=event.target.dataset?.suggestInput;if(['budget','price','contest'].includes(key)){suggestionState[key]=event.target.value;suggestionState.result=null;suggestionState.error=null;$('#suggestions-output')?.replaceChildren();if($('#suggestion-error'))$('#suggestion-error').textContent='';}});
+document.addEventListener('input',event=>{const key=event.target.dataset?.suggestInput;if(['budget','price','contest'].includes(key)){cancelSuggestions(false);suggestionState[key]=event.target.value;suggestionState.result=null;suggestionState.error=null;$('#suggestions-output')?.replaceChildren();if($('#suggestion-error'))$('#suggestion-error').textContent='';}});
 window.addEventListener('online', () => { if (state.user && !mutationPending) { void loadData(); void refreshResults(); } });
 window.addEventListener('offline', () => { $('#sync-status').textContent = 'Sem conexão'; });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && state.user && !$('#editor').open && !mutationPending) { void loadData(); if (Date.now() - resultsState.lastAttempt > 300000) void refreshResults(); } });
