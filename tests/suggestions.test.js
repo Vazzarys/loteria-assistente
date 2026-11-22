@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { GAMES, choose, validateNumbers } from '../core.js';
-import { SIMPLE_PRICES,planBudget,nearWinningMasks,numberMask,exactContainedUnion,portfolioCoverage,generatePortfolio,historicalAudit,countBits } from '../suggestions.js';
+import { SIMPLE_PRICES,planBudget,nearWinningMasks,numberMask,exactContainedUnion,exactOneMissUnion,portfolioCoverage,generatePortfolio,historicalAudit,countBits } from '../suggestions.js';
 
 function combinations(items,k) { const output=[];function visit(start,row){if(row.length===k){output.push(row);return;}for(let i=start;i<=items.length-(k-row.length);i++)visit(i+1,[...row,items[i]]);}visit(0,[]);return output; }
 test('orçamento usa centavos, respeita limite mensal e não excede o lote máximo',()=>{
@@ -57,7 +57,44 @@ test('não repete combinação já contida em aposta ampliada e não entra em lo
 test('um par de Lotomania inclui a opção espelho e atinge o teto de cobertura principal',async()=>{
  const result=await generatePortfolio('lotomania',2,{candidateCount:8});
  assert.equal(result.coverage.main,result.coverage.mainUpperBound);
+ assert.equal(result.coverage.near,result.coverage.nearUpperBound);
  assert.equal(result.tickets[0].filter(n=>result.tickets[1].includes(n)).length,0);
+});
+test('cobertura com até uma falta bate com todos os sorteios enumerados, inclusive interseções múltiplas', () => {
+ const universe = Array.from({length:8}, (_,i) => i);
+ const tickets = combinations(universe,4);
+ for (let variant = 0; variant < 12; variant++) {
+  const batch = Array.from({length:8}, (_,i) => tickets[(variant * 13 + i * 7) % tickets.length]);
+  const masks = batch.map(numberMask);
+  for (let drawn = 1; drawn <= 6; drawn++) {
+   const draws = combinations(universe,drawn);
+   const count = draws.filter(draw=>batch.some(ticket=>draw.filter(n=>!ticket.includes(n)).length<=1)).length;
+   assert.equal(exactOneMissUnion(masks,universe.length,drawn),BigInt(count));
+  }
+ }
+});
+test('Lotomania: união dos 19 ou mais acertos soma eventos e desconta a interseção', () => {
+ const first = Array.from({length:50}, (_,i) => i);
+ const second = Array.from({length:50}, (_,i) => i<18 ? i : i+32);
+ const perTicket = choose(50,20) + 50n * choose(50,19);
+ const result = portfolioCoverage('lotomania',[first,second]);
+ assert.equal(result.nearHits,19);
+ assert.equal(result.main,result.mainUpperBound);
+ assert.equal(result.near,2n*perTicket-32n*32n);
+ assert.equal(result.nearUpperBound,2n*perTicket);
+});
+test('Lotomania desempata pela cobertura exata de 19 ou mais com o jogo espelho indisponível', async () => {
+ const first = Array.from({length:50}, (_,i) => i);
+ const mirror = Array.from({length:50}, (_,i) => i+50);
+ const overlapping = Array.from({length:50}, (_,i) => i<18 ? i : i+32);
+ const disjointCoverage = Array.from({length:50}, (_,i) => i<17 ? i : i+33);
+ const scripted = [first,overlapping,overlapping,disjointCoverage];
+ const result = await generatePortfolio('lotomania',2,{
+   exclusions:[mirror],candidateCount:2,nextTicket:()=>scripted.shift(),
+ });
+ assert.deepEqual(result.tickets,[first,disjointCoverage]);
+ assert.equal(result.coverage.main,result.coverage.mainUpperBound);
+ assert.equal(result.coverage.near,result.coverage.nearUpperBound);
 });
 test('retrospecto usa os últimos 20% e compara lotes do mesmo tamanho sem selecionar pelo histórico',async()=>{
  const history=JSON.parse(readFileSync(new URL('../data/history/megasena.json',import.meta.url),'utf8'));
