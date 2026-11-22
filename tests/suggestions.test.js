@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { GAMES, choose, validateNumbers } from '../core.js';
-import { SIMPLE_PRICES,planBudget,nearWinningMasks,numberMask,exactContainedUnion,exactOneMissUnion,portfolioCoverage,generatePortfolio,historicalAudit,countBits } from '../suggestions.js';
+import { SIMPLE_PRICES,planBudget,nearWinningMasks,numberMask,exactContainedUnion,exactOneMissUnion,portfolioCoverage,generatePortfolio,historicalAudit,countBits,twoMissOverlap } from '../suggestions.js';
 
 function combinations(items,k) { const output=[];function visit(start,row){if(row.length===k){output.push(row);return;}for(let i=start;i<=items.length-(k-row.length);i++)visit(i+1,[...row,items[i]]);}visit(0,[]);return output; }
 test('orçamento usa centavos, respeita limite mensal e não excede o lote máximo',()=>{
@@ -107,4 +107,37 @@ test('retrospecto usa os últimos 20% e compara lotes do mesmo tamanho sem selec
 test('cancelamento não retorna lote parcialmente gerado',async()=>{
  const controller=new AbortController();controller.abort();
  await assert.rejects(()=>generatePortfolio('megasena',3,{signal:controller.signal}),{name:'AbortError'});
+});
+
+test('terceira faixa conta resultados compartilhados uma única vez, inclusive entre três jogos', () => {
+ const universe = Array.from({ length: 10 }, (_, i) => i + 1);
+ const draws = combinations(universe, 5);
+ const candidate = [1, 2, 3, 4, 5];
+ const others = [[1, 2, 3, 6, 7], [1, 3, 4, 8, 9], [1, 6, 7, 8, 10]];
+ const wins = (draw, ticket) => draw.filter(number => ticket.includes(number)).length >= 3;
+ const brute = draws.filter(draw => wins(draw, candidate) && others.some(ticket => wins(draw, ticket)));
+ assert.equal(twoMissOverlap(numberMask(candidate), others.map(numberMask), 1, 10, 5), brute.length);
+});
+
+test('refinamento da Quina preserva 5 e 4+ acertos e aumenta 3+ quando dois candidatos empatam', async () => {
+ const a = [1, 2, 3, 4, 5];
+ const b = [6, 7, 8, 9, 10];
+ const c = [1, 2, 15, 16, 17];
+ const d = [1, 6, 25, 26, 27];
+ const scripted = [a, b, b, [1, 11, 12, 13, 14], c, d];
+ const baseline = portfolioCoverage('quina', [a, b, c]);
+ const refined = await generatePortfolio('quina', 3, { candidateCount: 2, nextTicket: () => scripted.shift() });
+ assert.deepEqual(refined.tickets, [a, b, d]);
+ assert.equal(refined.coverage.main, baseline.main);
+ assert.equal(refined.coverage.near, baseline.near);
+ assert.ok(refined.coverage.third > baseline.third);
+ assert.equal(refined.coverage.third, refined.coverage.thirdUpperBound - 72n);
+});
+
+test('cancelar durante o refinamento impede a publicação do lote', async () => {
+ const controller = new AbortController();
+ await assert.rejects(() => generatePortfolio('quina', 2, {
+   signal: controller.signal,
+   onProgress: ({ phase }) => { if (phase === 'refinement') controller.abort(); },
+ }), { name: 'AbortError' });
 });
