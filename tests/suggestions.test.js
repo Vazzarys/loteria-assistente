@@ -142,6 +142,21 @@ test('cancelar durante o refinamento impede a publicação do lote', async () =>
  }), { name: 'AbortError' });
 });
 
+test('Dupla Sena cobre pares ordenados em que o lote alcança a faixa em pelo menos um sorteio', () => {
+ const ticket = [1, 2, 3, 4, 5, 6];
+ const coverage = portfolioCoverage('duplasena', [ticket]);
+ const oneDraw = 15890700n;
+ assert.equal(coverage.contest.draws, 2);
+ assert.equal(coverage.contest.total, oneDraw * oneDraw);
+ const expectedPerDraw = { main: 1n, near: 265n, third: 14455n };
+ for (const [tier, wins] of Object.entries(expectedPerDraw)) {
+   assert.equal(coverage[tier], wins);
+   // Um acerto em apenas um dos dois sorteios ou um acerto nos dois.
+   assert.equal(coverage.contest[tier], 2n * wins * (oneDraw - wins) + wins * wins);
+ }
+ assert.equal(portfolioCoverage('megasena', [ticket]).contest, undefined);
+});
+
 test('Quina escolhe o jogo que acrescenta mais cobertura às apostas do mesmo concurso', async () => {
  const registered = [1, 2, 3, 4, 5];
  const overlap = [1, 2, 3, 6, 7];

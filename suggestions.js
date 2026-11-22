@@ -214,9 +214,21 @@ export function portfolioCoverage(game, tickets) {
   const nearUpper=BigInt(tickets.length*(1+g.drawn*(g.last-g.first+1-g.drawn)));
   const thirdSum = nearUpper + BigInt(tickets.length) * choose(g.drawn, 2) * choose(g.last - g.first + 1 - g.drawn, 2);
   const repeated = masks.reduce((sum, mask, i) => sum + twoMissOverlap(mask, masks.slice(0, i), g.first, g.last, g.drawn), 0);
-  return { main:BigInt(tickets.length), total, near:BigInt(outcomes.size), nearHits:g.drawn-1,
+  const coverage = { main:BigInt(tickets.length), total, near:BigInt(outcomes.size), nearHits:g.drawn-1,
     mainUpperBound:BigInt(tickets.length), nearUpperBound:nearUpper<total?nearUpper:total,
     third: thirdSum - BigInt(repeated), thirdHits: g.drawn - 2, thirdUpperBound: thirdSum < total ? thirdSum : total };
+  if (game === 'duplasena') {
+    const pairs = total ** 2n;
+    const atLeastOne = covered => pairs - (total - covered) ** 2n;
+    coverage.contest = {
+      draws: 2,
+      total: pairs,
+      main: atLeastOne(coverage.main),
+      near: atLeastOne(coverage.near),
+      third: atLeastOne(coverage.third),
+    };
+  }
+  return coverage;
 }
 export async function generatePortfolio(game, count, { exclusions=[], candidateCount=32, nextTicket, signal, onProgress=()=>{} } = {}) {
   const g=GAMES[game];
