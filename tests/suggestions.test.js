@@ -141,3 +141,36 @@ test('cancelar durante o refinamento impede a publicação do lote', async () =>
    onProgress: ({ phase }) => { if (phase === 'refinement') controller.abort(); },
  }), { name: 'AbortError' });
 });
+
+test('Quina escolhe o jogo que acrescenta mais cobertura às apostas do mesmo concurso', async () => {
+ const registered = [1, 2, 3, 4, 5];
+ const overlap = [1, 2, 3, 6, 7];
+ const disjoint = [8, 9, 10, 11, 12];
+ const scripted = [overlap, disjoint];
+ const result = await generatePortfolio('quina', 1, {
+   exclusions: [registered], candidateCount: 2, nextTicket: () => scripted.shift(),
+ });
+ const expected = portfolioCoverage('quina', [registered, disjoint]);
+ assert.deepEqual(result.tickets, [disjoint]);
+ assert.equal(result.incremental.improved, true);
+ for (const tier of ['main', 'near', 'third']) {
+   assert.equal(result.incremental.after[tier], expected[tier]);
+   assert.equal(result.incremental.added[tier], expected[tier] - result.incremental.before[tier]);
+ }
+ assert.equal(result.incremental.baseline.near, portfolioCoverage('quina', [registered, overlap]).near);
+});
+
+test('Quina conta apostas ampliadas, repetidas e contidas sem somar duas vezes', async () => {
+ const expanded = Array.from({ length: 15 }, (_, i) => i + 1);
+ const newTicket = [16, 17, 18, 19, 20];
+ const result = await generatePortfolio('quina', 1, {
+   exclusions: [expanded, expanded.slice(0, 5), [...expanded].reverse()], candidateCount: 1,
+   nextTicket: () => newTicket,
+ });
+ const main = choose(15, 5);
+ const near = main + choose(15, 4) * 65n;
+ const third = near + choose(15, 3) * choose(65, 2);
+ assert.deepEqual(result.incremental.before, { main, near, third });
+ assert.deepEqual(result.incremental.added, { main: 1n, near: 376n, third: 28126n });
+ assert.equal(result.incremental.improved, false);
+});

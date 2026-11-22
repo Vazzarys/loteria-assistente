@@ -1,4 +1,5 @@
 import { GAMES, choose, generateNumbers, validateNumbers } from './core.js';
+import { refineQuinaIncremental } from './quina-coverage.js?v=0.6.6';
 
 export const METHOD_VERSION = 'cobertura-exata-3-faixas';
 const LOTOMANIA_METHOD_VERSION = 'lotomania-cobertura-exata-2';
@@ -276,8 +277,29 @@ export async function generatePortfolio(game, count, { exclusions=[], candidateC
   const refinementEvaluated = game !== 'lotomania' && tickets.length > 1
     ? await refineThirdTier(tickets, pools, game, signal, onProgress)
     : 0;
+  let chosenTickets = tickets, incremental = null;
+  if (game === 'quina' && exclusions.length) {
+    let lastYield = performance.now();
+    const checkpoint = async (force = true) => {
+      checkAbort(signal);
+      if (force || performance.now() - lastYield >= 12) {
+        await yieldUI();
+        lastYield = performance.now();
+        checkAbort(signal);
+      }
+    };
+    onProgress({ done: 0, total: count, phase: 'incremental' });
+    await checkpoint();
+    const refined = await refineQuinaIncremental(exclusions, tickets, pools, {
+      checkpoint,
+      progress: done => onProgress({ done, total: count, phase: 'incremental' }),
+    });
+    chosenTickets = refined.tickets;
+    incremental = refined.incremental;
+  }
   checkAbort(signal);
-  return { tickets, coverage:portfolioCoverage(game,tickets), method:game === 'lotomania' ? LOTOMANIA_METHOD_VERSION : METHOD_VERSION, candidatesEvaluated, candidateCount, refinementEvaluated };
+  const method = incremental ? 'quina-cobertura-incremental-1' : game === 'lotomania' ? LOTOMANIA_METHOD_VERSION : METHOD_VERSION;
+  return { tickets:chosenTickets, coverage:portfolioCoverage(game,chosenTickets), method, candidatesEvaluated, candidateCount, refinementEvaluated, ...(incremental ? { incremental } : {}) };
 }
 export function retrospective(tickets, records, drawn) {
   const masks=tickets.map(numberMask), histogram=Array(drawn+1).fill(0);
