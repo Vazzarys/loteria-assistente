@@ -189,3 +189,32 @@ test('Quina conta apostas ampliadas, repetidas e contidas sem somar duas vezes',
  assert.deepEqual(result.incremental.added, { main: 1n, near: 376n, third: 28126n });
  assert.equal(result.incremental.improved, false);
 });
+
+test('Mega-Sena mantém a chance da sena e evita sobreposição de cinco acertos', async () => {
+ const registered = [1, 2, 3, 4, 5, 6];
+ const overlapping = [1, 2, 3, 4, 5, 7];
+ const complementary = [1, 2, 3, 8, 9, 10];
+ const candidates = [overlapping, complementary];
+ const result = await generatePortfolio('megasena', 1, {
+   exclusions: [registered], candidateCount: 2, nextTicket: () => candidates.shift(),
+ });
+ assert.deepEqual(result.tickets, [complementary]);
+ assert.equal(result.incremental.improved, true);
+ assert.deepEqual(result.incremental.before, { main: 1n, near: 325n });
+ assert.deepEqual(result.incremental.baseline, { main: 2n, near: 590n });
+ assert.deepEqual(result.incremental.after, { main: 2n, near: 650n });
+ assert.deepEqual(result.incremental.added, { main: 1n, near: 325n });
+});
+
+test('Mega-Sena deduplica apostas ampliadas e mantém a cobertura exata combinada', async () => {
+ const expanded = Array.from({ length: 20 }, (_, i) => i + 1);
+ const result = await generatePortfolio('megasena', 1, {
+   exclusions: [expanded, expanded.slice(0, 6), [...expanded].reverse()], candidateCount: 1,
+   nextTicket: () => [21, 22, 23, 24, 25, 26],
+ });
+ const main = choose(20, 6);
+ const near = main + choose(20, 5) * 40n;
+ assert.deepEqual(result.incremental.before, { main, near });
+ assert.deepEqual(result.incremental.after, { main: main + 1n, near: near + 325n });
+ assert.equal(result.incremental.registeredCount, 3);
+});
