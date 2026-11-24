@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { GAMES, choose, validateNumbers } from '../core.js';
-import { SIMPLE_PRICES,planBudget,nearWinningMasks,numberMask,exactContainedUnion,exactOneMissUnion,portfolioCoverage,generatePortfolio,historicalAudit,countBits,twoMissOverlap } from '../suggestions.js';
+import { SIMPLE_PRICES,planBudget,nearWinningMasks,numberMask,exactContainedUnion,exactOneMissUnion,portfolioCoverage,generatePortfolio,historicalAudit,countBits } from '../suggestions.js';
 
 function combinations(items,k) { const output=[];function visit(start,row){if(row.length===k){output.push(row);return;}for(let i=start;i<=items.length-(k-row.length);i++)visit(i+1,[...row,items[i]]);}visit(0,[]);return output; }
 test('orçamento usa centavos, respeita limite mensal e não excede o lote máximo',()=>{
@@ -34,6 +34,7 @@ test('probabilidades de um jogo simples e faixa imediatamente abaixo usam contag
  for(const [game,[total,near]] of Object.entries(expected)){
   const g=GAMES[game],ticket=Array.from({length:g.min},(_,i)=>g.first+i),result=portfolioCoverage(game,[ticket]);
   assert.equal(result.main,1n);assert.equal(result.total,total);assert.equal(result.near,near);
+  assert.equal(result.third, undefined);
  }
  const a=Array.from({length:50},(_,i)=>i),b=Array.from({length:50},(_,i)=>i+50);
  assert.equal(portfolioCoverage('lotomania',[a,b]).main,2n*choose(50,20));
@@ -109,46 +110,13 @@ test('cancelamento não retorna lote parcialmente gerado',async()=>{
  await assert.rejects(()=>generatePortfolio('megasena',3,{signal:controller.signal}),{name:'AbortError'});
 });
 
-test('terceira faixa conta resultados compartilhados uma única vez, inclusive entre três jogos', () => {
- const universe = Array.from({ length: 10 }, (_, i) => i + 1);
- const draws = combinations(universe, 5);
- const candidate = [1, 2, 3, 4, 5];
- const others = [[1, 2, 3, 6, 7], [1, 3, 4, 8, 9], [1, 6, 7, 8, 10]];
- const wins = (draw, ticket) => draw.filter(number => ticket.includes(number)).length >= 3;
- const brute = draws.filter(draw => wins(draw, candidate) && others.some(ticket => wins(draw, ticket)));
- assert.equal(twoMissOverlap(numberMask(candidate), others.map(numberMask), 1, 10, 5), brute.length);
-});
-
-test('refinamento da Quina preserva 5 e 4+ acertos e aumenta 3+ quando dois candidatos empatam', async () => {
- const a = [1, 2, 3, 4, 5];
- const b = [6, 7, 8, 9, 10];
- const c = [1, 2, 15, 16, 17];
- const d = [1, 6, 25, 26, 27];
- const scripted = [a, b, b, [1, 11, 12, 13, 14], c, d];
- const baseline = portfolioCoverage('quina', [a, b, c]);
- const refined = await generatePortfolio('quina', 3, { candidateCount: 2, nextTicket: () => scripted.shift() });
- assert.deepEqual(refined.tickets, [a, b, d]);
- assert.equal(refined.coverage.main, baseline.main);
- assert.equal(refined.coverage.near, baseline.near);
- assert.ok(refined.coverage.third > baseline.third);
- assert.equal(refined.coverage.third, refined.coverage.thirdUpperBound - 72n);
-});
-
-test('cancelar durante o refinamento impede a publicação do lote', async () => {
- const controller = new AbortController();
- await assert.rejects(() => generatePortfolio('quina', 2, {
-   signal: controller.signal,
-   onProgress: ({ phase }) => { if (phase === 'refinement') controller.abort(); },
- }), { name: 'AbortError' });
-});
-
 test('Dupla Sena cobre pares ordenados em que o lote alcança a faixa em pelo menos um sorteio', () => {
  const ticket = [1, 2, 3, 4, 5, 6];
  const coverage = portfolioCoverage('duplasena', [ticket]);
  const oneDraw = 15890700n;
  assert.equal(coverage.contest.draws, 2);
  assert.equal(coverage.contest.total, oneDraw * oneDraw);
- const expectedPerDraw = { main: 1n, near: 265n, third: 14455n };
+ const expectedPerDraw = { main: 1n, near: 265n };
  for (const [tier, wins] of Object.entries(expectedPerDraw)) {
    assert.equal(coverage[tier], wins);
    // Um acerto em apenas um dos dois sorteios ou um acerto nos dois.
@@ -168,7 +136,7 @@ test('Quina escolhe o jogo que acrescenta mais cobertura às apostas do mesmo co
  const expected = portfolioCoverage('quina', [registered, disjoint]);
  assert.deepEqual(result.tickets, [disjoint]);
  assert.equal(result.incremental.improved, true);
- for (const tier of ['main', 'near', 'third']) {
+ for (const tier of ['main', 'near']) {
    assert.equal(result.incremental.after[tier], expected[tier]);
    assert.equal(result.incremental.added[tier], expected[tier] - result.incremental.before[tier]);
  }
@@ -184,9 +152,8 @@ test('Quina conta apostas ampliadas, repetidas e contidas sem somar duas vezes',
  });
  const main = choose(15, 5);
  const near = main + choose(15, 4) * 65n;
- const third = near + choose(15, 3) * choose(65, 2);
- assert.deepEqual(result.incremental.before, { main, near, third });
- assert.deepEqual(result.incremental.added, { main: 1n, near: 376n, third: 28126n });
+ assert.deepEqual(result.incremental.before, { main, near });
+ assert.deepEqual(result.incremental.added, { main: 1n, near: 376n });
  assert.equal(result.incremental.improved, false);
 });
 

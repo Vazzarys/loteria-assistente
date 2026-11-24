@@ -1,7 +1,7 @@
 import { GAMES, choose, generateNumbers, validateNumbers } from './core.js';
-import { refineIncremental } from './incremental-coverage.js?v=0.6.8';
+import { refineIncremental } from './incremental-coverage.js?v=0.6.9';
 
-export const METHOD_VERSION = 'cobertura-exata-3-faixas';
+export const METHOD_VERSION = 'cobertura-exata-2-faixas';
 const LOTOMANIA_METHOD_VERSION = 'lotomania-cobertura-exata-2';
 export const SIMPLE_PRICES = { megasena:600, megadavirada:600, lotofacil:350, quina:300, lotomania:300, duplasena:300 };
 export const PRICE_CHECKED = '2026-11-10';
@@ -109,90 +109,6 @@ export function exactOneMissUnion(masks, universeSize, drawn) {
 }
 function isExcluded(numbers, exclusions) { return exclusions.some(existing=>numbers.every(n=>existing.includes(n))); }
 
-function combinationsOfBits(bits) {
-  const cache = new Map([[0, [0n]]]);
-  return count => {
-    if (!cache.has(count)) {
-      const masks = [];
-      function visit(start, remaining, mask) {
-        if (!remaining) {
-          masks.push(mask);
-          return;
-        }
-        for (let i = start; i <= bits.length - remaining; i++) {
-          visit(i + 1, remaining - 1, mask | bits[i]);
-        }
-      }
-      visit(0, count, 0n);
-      cache.set(count, masks);
-    }
-    return cache.get(count);
-  };
-}
-
-// Conta somente sorteios compartilhados com jogos do lote. Duas apostas
-// podem cobrir o mesmo sorteio de até duas trocas se partilharem d - 4 dezenas.
-export function twoMissOverlap(candidate, others, first, last, drawn) {
-  const repeated = new Set();
-  for (const other of others) {
-    if (countBits(candidate & other) < drawn - 4) continue;
-    const groups = [[], [], [], []]; // fora dos dois, só do candidato, só do outro, em ambos
-    for (let number = first; number <= last; number++) {
-      const bit = 1n << BigInt(number);
-      const category = (candidate & bit ? 1 : 0) + (other & bit ? 2 : 0);
-      groups[category].push(bit);
-    }
-    const [outside, left, right, shared] = groups.map(combinationsOfBits);
-    for (let both = Math.max(0, drawn - 4); both <= Math.min(drawn, groups[3].length); both++) {
-      const minUnique = Math.max(0, drawn - 2 - both);
-      for (let a = minUnique; a <= Math.min(drawn - both, groups[1].length); a++) {
-        for (let b = minUnique; b <= Math.min(drawn - both - a, groups[2].length); b++) {
-          const neither = drawn - both - a - b;
-          if (neither > groups[0].length) continue;
-          for (const m of shared(both)) for (const l of left(a)) {
-            for (const r of right(b)) for (const o of outside(neither)) repeated.add(m | l | r | o);
-          }
-        }
-      }
-    }
-  }
-  return repeated.size;
-}
-
-async function refineThirdTier(tickets, pools, game, signal, onProgress) {
-  const g = GAMES[game], masks = tickets.map(numberMask);
-  let evaluated = 0;
-  for (let slot = 0; slot < tickets.length; slot++) {
-    checkAbort(signal);
-    const others = masks.filter((_, i) => slot !== i);
-    let overlap = twoMissOverlap(masks[slot], others, g.first, g.last, g.drawn);
-    if (overlap) {
-      const near = new Set();
-      for (let i = 0; i < tickets.length; i++) {
-        if (i === slot) continue;
-        for (const mask of nearWinningMasks(tickets[i], g.first, g.last)) near.add(mask);
-      }
-      const marginalNear = ticket => nearWinningMasks(ticket, g.first, g.last).reduce((n, mask) => n + !near.has(mask), 0);
-      const baseline = marginalNear(tickets[slot]);
-      for (const ticket of pools[slot]) {
-        const mask = numberMask(ticket);
-        if (mask === masks[slot] || others.includes(mask)) continue;
-        evaluated++;
-        if (marginalNear(ticket) !== baseline) continue;
-        const candidateOverlap = twoMissOverlap(mask, others, g.first, g.last, g.drawn);
-        if (candidateOverlap >= overlap) continue;
-        overlap = candidateOverlap;
-        tickets[slot] = ticket;
-        masks[slot] = mask;
-        if (!overlap) break;
-      }
-    }
-    onProgress({ done: slot + 1, total: tickets.length, phase: 'refinement' });
-    await yieldUI();
-  }
-  return evaluated;
-}
-
 export function portfolioCoverage(game, tickets) {
   const g=GAMES[game];
   if(!g || !tickets.length || tickets.length>batchLimit(game) || tickets.some(t=>!validateNumbers(game,t) || t.length!==g.min)) throw new Error('Lote de apostas simples inválido.');
@@ -212,11 +128,8 @@ export function portfolioCoverage(game, tickets) {
   const outcomes=new Set();
   for(const ticket of tickets) for(const mask of nearWinningMasks(ticket,g.first,g.last)) outcomes.add(mask);
   const nearUpper=BigInt(tickets.length*(1+g.drawn*(g.last-g.first+1-g.drawn)));
-  const thirdSum = nearUpper + BigInt(tickets.length) * choose(g.drawn, 2) * choose(g.last - g.first + 1 - g.drawn, 2);
-  const repeated = masks.reduce((sum, mask, i) => sum + twoMissOverlap(mask, masks.slice(0, i), g.first, g.last, g.drawn), 0);
   const coverage = { main:BigInt(tickets.length), total, near:BigInt(outcomes.size), nearHits:g.drawn-1,
-    mainUpperBound:BigInt(tickets.length), nearUpperBound:nearUpper<total?nearUpper:total,
-    third: thirdSum - BigInt(repeated), thirdHits: g.drawn - 2, thirdUpperBound: thirdSum < total ? thirdSum : total };
+    mainUpperBound:BigInt(tickets.length), nearUpperBound:nearUpper<total?nearUpper:total };
   if (game === 'duplasena') {
     const pairs = total ** 2n;
     const atLeastOne = covered => pairs - (total - covered) ** 2n;
@@ -225,7 +138,6 @@ export function portfolioCoverage(game, tickets) {
       total: pairs,
       main: atLeastOne(coverage.main),
       near: atLeastOne(coverage.near),
-      third: atLeastOne(coverage.third),
     };
   }
   return coverage;
@@ -286,9 +198,6 @@ export async function generatePortfolio(game, count, { exclusions=[], candidateC
     onProgress({done:step+1,total:count});await yieldUI();
   }
   checkAbort(signal);
-  const refinementEvaluated = game !== 'lotomania' && tickets.length > 1
-    ? await refineThirdTier(tickets, pools, game, signal, onProgress)
-    : 0;
   let chosenTickets = tickets, incremental = null;
   if ((game === 'quina' || game === 'megasena') && exclusions.length) {
     let lastYield = performance.now();
@@ -310,8 +219,8 @@ export async function generatePortfolio(game, count, { exclusions=[], candidateC
     incremental = refined.incremental;
   }
   checkAbort(signal);
-  const method = incremental ? `${game}-cobertura-incremental-1` : game === 'lotomania' ? LOTOMANIA_METHOD_VERSION : METHOD_VERSION;
-  return { tickets:chosenTickets, coverage:portfolioCoverage(game,chosenTickets), method, candidatesEvaluated, candidateCount, refinementEvaluated, ...(incremental ? { incremental } : {}) };
+  const method = incremental ? `${game}-cobertura-incremental-2-faixas` : game === 'lotomania' ? LOTOMANIA_METHOD_VERSION : METHOD_VERSION;
+  return { tickets:chosenTickets, coverage:portfolioCoverage(game,chosenTickets), method, candidatesEvaluated, candidateCount, ...(incremental ? { incremental } : {}) };
 }
 export function retrospective(tickets, records, drawn) {
   const masks=tickets.map(numberMask), histogram=Array(drawn+1).fill(0);

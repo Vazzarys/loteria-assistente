@@ -23,4 +23,3 @@ html[data-theme=dark]{--bg:#15211c;--surface:#1e2c25;--text:#e0eadf;--muted:#a0a
 
 .login-box .recovery-request{width:100%;justify-content:center;margin:12px 0 0}
 
-@media(min-width:1100px){.suggestion-stats.has-third{grid-template-columns:repeat(5,minmax(0,1fr))}}

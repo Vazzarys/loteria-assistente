@@ -1,7 +1,6 @@
 import { GAMES, choose } from './core.js';
 
-const TIER_KEYS = ['main', 'near', 'third'];
-const tierCounts = counts => Object.fromEntries(counts.map((count, i) => [TIER_KEYS[i], BigInt(count)]));
+const tierCounts = ([main, near]) => ({ main: BigInt(main), near: BigInt(near) });
 
 function visitDraws(ticket, minHits, { universe, drawn, ranks }, visit) {
   const selected = new Set(ticket);
@@ -84,7 +83,7 @@ export async function refineIncremental(game, registered, original, pools, { che
   const ranks = Array.from({ length: drawn }, (_, position) =>
     Uint32Array.from({ length: last + 1 }, (_, number) => Number(choose(number - first, position + 1))));
   const total = Number(choose(universe.length, drawn));
-  const rules = { universe, drawn, ranks, total, tiers: game === 'quina' ? 3 : 2 };
+  const rules = { universe, drawn, ranks, total, tiers: 2 };
   const coverage = emptyCoverage(rules);
   const ordered = [...registered].sort((a, b) => b.length - a.length);
   const included = [];
@@ -108,24 +107,14 @@ export async function refineIncremental(game, registered, original, pools, { che
       const id = key(ticket);
       if (!reserve.has(id) && !selected.has(id)) candidates.set(id, ticket);
     }
-    // Os candidatos já excluem as combinações principais cobertas.
-    // Avalia a segunda faixa em todos os candidatos e, na Quina,
-    // usa até oito empatados para avaliar a terceira.
-    let finalists = [], bestNear = -1;
+    // As combinações da faixa principal são novas. Entre elas, escolhe
+    // a que acrescenta mais resultados na segunda faixa ou melhor.
+    let best, bestNear = -1;
     for (const [id, ticket] of candidates) {
       const near = gain(alternative, ticket, drawn - 1, rules);
       if (near > bestNear) {
         bestNear = near;
-        finalists = [];
-      }
-      if (near === bestNear && finalists.length < 8) finalists.push({ id, ticket });
-    }
-    let best = finalists[0], bestThird = -1;
-    for (const candidate of rules.tiers === 3 ? finalists : []) {
-      const third = gain(alternative, candidate.ticket, drawn - 2, rules);
-      if (third > bestThird) {
-        best = candidate;
-        bestThird = third;
+        best = { id, ticket };
       }
       await checkpoint(false);
     }
