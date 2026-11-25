@@ -23,3 +23,8 @@ html[data-theme=dark]{--bg:#15211c;--surface:#1e2c25;--text:#e0eadf;--muted:#a0a
 
 .login-box .recovery-request{width:100%;justify-content:center;margin:12px 0 0}
 
+
+.suggestion-total{margin:0 0 16px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--bg);font-size:13px;color:var(--text)}
+.suggestion-total strong{margin-left:6px;font-size:16px}
+.suggestion-stats{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media(max-width:700px){.suggestion-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
