@@ -92,6 +92,7 @@ function overview() {
   const budget = Number(state.settings.monthly_budget);
   const week = weekBounds();
   return `${financePanel(month)}
+    <div id="bet-status-alerts" aria-live="polite">${betStatusAlerts(state.bets, true)}</div>
     <section class="stats overview-stats" aria-label="Resumo pessoal">
       <div class="stat"><span class="stat-label">Combinações favoritas</span><strong class="stat-value">${state.favorites.length}</strong></div>
       <div class="stat"><span class="stat-label">Apostas neste mês</span><strong class="stat-value">${summary.count}</strong><span class="stat-note">Por data da aposta</span></div>
@@ -639,9 +640,31 @@ function betGroups(rows) {
 function betCard(b, highlights = []) {
   return `<article class="record" style="${gameStyle(b.game)}">${highlights.length ? `<div class="bet-highlights">${highlights.map(label => `<span>${label}</span>`).join('')}</div>` : ''}<div class="record-heading"><div><h3>${GAMES[b.game].name} · Concurso ${b.contest}</h3><span class="muted">Aposta em ${dateLabel(b.bet_date)}</span></div><span class="pill">${b.prize_received === null ? 'SEM VALOR RECEBIDO INFORMADO' : 'VALOR RECEBIDO INFORMADO'}</span></div>${balls(b.game, b.numbers)}${betCheckSummary(b)}<div class="prize-data"><div><span class="muted">Valor apostado</span><strong>${money(b.cost)}</strong></div><div><span class="muted">Recebido · informado por você</span><strong>${b.prize_received === null ? '—' : money(b.prize_received)}</strong></div></div>${betNotes(b.notes).text ? `<p class="record-notes" style="margin-top:14px">${esc(betNotes(b.notes).text)}</p>` : ''}<div class="record-actions"><button class="small-button" data-check-bet="${b.id}">Ver conferência</button><button class="small-button" data-edit-bet="${b.id}">Editar registro</button><button class="small-button" data-delete-bet="${b.id}">Excluir</button></div></article>`;
 }
+function betStatusAlerts(bets, overview = false) {
+  const contests = { error: new Set(), rateio: new Set(), pending: new Set() };
+  for (const bet of bets) {
+    const entry = checkedBet(bet);
+    const status = entry?.refreshError ? 'error' : entry?.status;
+    if (Object.hasOwn(contests, status)) contests[status].add(`${GAMES[bet.game].name} ${bet.contest}`);
+  }
+  const notices = [
+    { status: 'error', title: 'Falha ao conferir apostas', message: 'A última consulta falhou. O app tentará novamente enquanto estiver aberto e visível.' },
+    { status: 'rateio', title: 'Prêmio com rateio a confirmar', message: 'O sorteio foi conferido. O valor entra no painel quando o rateio for confirmado.' },
+    { status: 'pending', title: 'Aguardando resultado oficial', message: 'A conferência será feita assim que o app receber o resultado da Caixa.' },
+  ];
+  return notices.filter(({ status }) => contests[status].size).map(({ status, title, message }) => {
+    const labels = [...contests[status]];
+    const extra = labels.length - 3;
+    return `<div class="check-notice check-notice-${status}">
+      <div><strong>${title}</strong><p>${message}</p>
+      <small>${esc(labels.slice(0, 3).join(' · '))}${extra > 0 ? ` · +${extra} ${extra === 1 ? 'concurso' : 'concursos'}` : ''}</small></div>
+      ${overview && status !== 'pending' ? '<button class="small-button" data-page="bets">Ver apostas</button>' : ''}
+    </div>`;
+  }).join('');
+}
 function bets() {
   const rows = state.bets.filter(b => !state.filter || b.game === state.filter);
-  return filterHeader('Seu histórico de apostas', rows.length) + `<div class="notice">O app confere seus jogos quando consulta a Caixa e inclui os prêmios com rateio confirmado no resumo financeiro. A consulta roda ao entrar e se repete com o app aberto e visível.</div><div class="results-toolbar"><p class="muted" role="status">${betChecks.busy?'Conferindo apostas na Caixa…':'A conferência não confirma pagamento nem resgate.'}</p><button class="small-button" data-action="check-bets" ${betChecks.busy||!rows.length?'disabled':''}>↻ Conferir apostas${state.filter?' desta modalidade':''}</button></div>` + (rows.length ? `<div class="record-list">${betGroups(rows)}</div>` : empty('Suas apostas, sem perder o controle.', 'Monte um jogo ou abra um favorito e selecione “Registrar aposta” depois de jogar na Caixa.'));
+  return filterHeader('Seu histórico de apostas', rows.length) + `<div aria-live="polite">${betStatusAlerts(rows)}</div><div class="notice">O app confere seus jogos quando consulta a Caixa e inclui os prêmios com rateio confirmado no resumo financeiro. A consulta roda ao entrar e se repete com o app aberto e visível.</div><div class="results-toolbar"><p class="muted" role="status">${betChecks.busy?'Conferindo apostas na Caixa…':'A conferência não confirma pagamento nem resgate.'}</p><button class="small-button" data-action="check-bets" ${betChecks.busy||!rows.length?'disabled':''}>↻ Conferir apostas${state.filter?' desta modalidade':''}</button></div>` + (rows.length ? `<div class="record-list">${betGroups(rows)}</div>` : empty('Suas apostas, sem perder o controle.', 'Monte um jogo ou abra um favorito e selecione “Registrar aposta” depois de jogar na Caixa.'));
 }
 function checkBetsForResult(game, record) {
   const checkedAt = new Date().toISOString();
@@ -666,7 +689,10 @@ function storeBetCheck(bet, entry) {
   const previous = checkedBet(bet);
   if ((entry.status === 'error' || entry.status === 'pending') && previous?.draws) {
     // Keep the last available result if a later consultation loses access to it.
-    betChecks.entries.set(bet.id, { ...previous, checkedAt: entry.checkedAt });
+    betChecks.entries.set(bet.id, {
+      ...previous, checkedAt: entry.checkedAt,
+      refreshError: entry.status === 'error' ? entry.error : previous.refreshError,
+    });
     return;
   }
   betChecks.entries.set(bet.id, entry);
@@ -694,6 +720,11 @@ async function refreshBetChecks(force=false, id=null) {
 function updateBetCheckViews() {
   if(state.user&&state.loaded&&state.page==='bets'&&!$('#editor').open)render();
   if($('#bet-check-dialog').open)renderBetCheck();
+  const alerts = $('#bet-status-alerts');
+  if (alerts) {
+    const html = betStatusAlerts(state.bets, true);
+    if (alerts.innerHTML !== html) alerts.innerHTML = html;
+  }
 }
 function openBetCheck(id) {
   if(!state.bets.some(b=>b.id===id))return;

@@ -82,3 +82,22 @@ html[data-theme=dark]{--bg:#15211c;--surface:#1e2c25;--text:#e0eadf;--muted:#a0a
 @media (max-width: 360px) {
   .finance-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+.check-notice {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  margin-bottom: 14px;
+  padding: 15px 18px;
+  border: 1px solid var(--border);
+  border-left: 4px solid #56746b;
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+}
+.check-notice-error { border-left-color: #c45c46; }
+.check-notice-rateio { border-left-color: #b48237; }
+.check-notice p { margin: 4px 0; font-size: 13px; }
+.check-notice small { color: var(--muted); }
