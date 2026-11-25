@@ -9,7 +9,7 @@ import { betSignature, checkRegisteredBets } from './settlements.js';
 const $ = s => document.querySelector(s);
 const state = { user: null, favorites: [], bets: [], settings: { monthly_budget: 0, theme: 'system' }, page: 'overview', game: 'megasena', numbers: [], quantity: 6, filter: '', loaded: false };
 const navigation = [ ['overview', '◫', 'Visão geral'], ['builder', '⊕', 'Montar jogo'], ['suggestions', '✧', 'Sugestões'], ['favorites', '♡', 'Favoritos'], ['bets', '▤', 'Minhas apostas'], ['settings', '⚙', 'Ajustes'] ];
-let client, editorContext, toastTimer, loadGeneration = 0, signingIn = false, mutationPending = false;
+let client, editorContext, builderBetDefaults, toastTimer, loadGeneration = 0, signingIn = false, mutationPending = false;
 const resultsState = { entries: readCache(), errors: {}, busy: false, initialized: false, lastAttempt: 0, selectedGame: null, week: weekBounds().start };
 const historyState = { game: null, numbers: [], data: null, result: null, controller: null, run: 0, busy: false, progress: '', error: null, scope: 'all', filter: '2+', limit: 40 };
 const suggestionState = { game:'megasena', quantity:'', price:'6.00', contest:'', busy:false, progress:'', error:null, result:null, controller:null, run:0 };
@@ -245,7 +245,7 @@ function planRequestedSuggestions(game, quantity, priceCents) {
 }
 function suggestions() {
   const s=suggestionState,g=GAMES[s.game],remaining=monthlyRemaining();
-  return `<div class="game-tabs" role="group" aria-label="Modalidade das sugestões">${Object.entries(GAMES).map(([game,g])=>`<button class="game-tab ${s.game===game?'active':''}" style="${gameStyle(game)}" data-suggest-game="${game}" ${s.busy?'disabled':''}>${g.name}</button>`).join('')}</div><section class="hero suggestion-hero"><div><span class="eyebrow">OBJETIVO: PRÊMIO PRINCIPAL</span><h2>Cobertura calculada, dentro do seu limite.</h2><p>Apostas simples distintas. O segundo critério é cobrir resultados que acertariam a faixa imediatamente abaixo${s.game==='lotomania'?' — na Lotomania, a prioridade é de 20 acertos e o desempate considera 19 ou mais':''}.</p><button class="secondary statistics-entry" data-statistics="${s.game}">Estatísticas e frequências ↗</button></div><span class="hero-mark" aria-hidden="true">✧</span></section><div class="suggestion-setup"><section class="panel"><h2>Planejar um lote · ${g.name}</h2><form id="suggestion-form"><div class="fields-row"><label>Quantidade de apostas<input name="quantity" data-suggest-input="quantity" type="number" min="1" max="${batchLimit(s.game)}" step="1" value="${esc(s.quantity)}" placeholder="Informe a quantidade" required ${s.busy?'disabled':''}></label><label>Preço por aposta (R$)<input name="price" data-suggest-input="price" type="number" min="0.01" max="1000000" step="0.01" value="${esc(s.price)}" required ${s.busy?'disabled':''}></label></div><p class="suggestion-total" role="status">Total estimado: <strong id="suggestion-total">${suggestionTotal(Number(s.quantity), suggestionPriceCents(s.price))}</strong></p><label>Concurso de destino<input name="contest" data-suggest-input="contest" type="number" min="1" max="2147483647" step="1" value="${esc(s.contest || suggestionContest(s.game))}" required ${s.busy?'disabled':''}></label><p class="fine">Preço de referência da Caixa conferido em ${dateLabel(PRICE_CHECKED)}. <a class="official-link" href="https://loterias.caixa.gov.br/Paginas/${PRICE_SOURCES[s.game]}.aspx" target="_blank" rel="noopener noreferrer">Conferir preço e regras ↗</a>. Atualize o campo se necessário; o custo usa o preço informado. ${g.min} dezenas por jogo. Limite de ${batchLimit(s.game)} jogos por geração${s.game==='lotomania'?' para calcular a cobertura por inclusão-exclusão':''}.</p>${remaining!==null?`<p class="fine">Saldo mensal disponível pelos registros: <strong>${money(remaining/100)}</strong>. O total precisa caber nesse saldo.</p>`:''}<button class="primary" type="submit" ${s.busy?'disabled':''}>${s.busy?'Calculando…':'Gerar sugestões com cobertura'}</button>${s.busy?'<button class="secondary" type="button" data-action="cancel-suggestions">Cancelar</button>':''}</form><p id="suggestion-error" class="error" role="alert">${esc(s.error||'')}</p><p id="suggestion-progress" class="muted" role="status">${s.busy?esc(s.progress):''}</p></section><section class="panel suggestion-method"><span class="eyebrow">COMO A ESCOLHA FUNCIONA</span><h2>Combinações, não previsões.</h2><ol><li>Calcula o custo da quantidade de apostas escolhida.</li><li>Gera candidatos aleatórios e evita repetir jogos já cobertos pelas suas apostas registradas no concurso.</li><li>${s.game==='lotomania'?'Prioriza a cobertura de 20 acertos. Em caso de empate, escolhe o candidato que cobre mais resultados com 19 ou mais.':'Preserva combinações distintas para o prêmio principal e busca maior cobertura de '+(g.drawn-1)+' ou mais acertos.'}</li><li>Mostra o lote assim que a cobertura é calculada e compara o histórico em seguida.</li></ol><p class="fine">As dezenas não são escolhidas pela frequência passada. Para o mesmo número de apostas simples distintas, a chance do prêmio principal é igual${s.game==='lotomania'?' nas modalidades com aposta simples igual ao tamanho do sorteio; a Lotomania exige outro cálculo':''}. A distribuição muda a cobertura conjunta das demais faixas.</p></section></div><div id="suggestions-output">${s.result?suggestionOutput():''}</div>`;
+  return `<div class="game-tabs" role="group" aria-label="Modalidade das sugestões">${Object.entries(GAMES).map(([game,g])=>`<button class="game-tab ${s.game===game?'active':''}" style="${gameStyle(game)}" data-suggest-game="${game}" ${s.busy?'disabled':''}>${g.name}</button>`).join('')}</div><section class="hero suggestion-hero"><div><span class="eyebrow">OBJETIVO: PRÊMIO PRINCIPAL</span><h2>Cobertura calculada, dentro do seu limite.</h2><p>Apostas simples distintas. O segundo critério é cobrir resultados que acertariam a faixa imediatamente abaixo${s.game==='lotomania'?' — na Lotomania, a prioridade é de 20 acertos e o desempate considera 19 ou mais':''}.</p><button class="secondary statistics-entry" data-statistics="${s.game}">Estatísticas e frequências ↗</button></div><span class="hero-mark" aria-hidden="true">✧</span></section><div class="suggestion-setup"><section class="panel"><h2>Planejar um lote · ${g.name}</h2><form id="suggestion-form"><div class="fields-row"><label>Quantidade de apostas<input name="quantity" data-suggest-input="quantity" type="number" min="1" max="${batchLimit(s.game)}" step="1" value="${esc(s.quantity)}" placeholder="Informe a quantidade" required ${s.busy?'disabled':''}></label><label>Preço por aposta (R$)<input name="price" data-suggest-input="price" type="number" min="0.01" max="1000000" step="0.01" value="${esc(s.price)}" required ${s.busy?'disabled':''}></label></div><p class="suggestion-total" role="status">Total estimado: <strong id="suggestion-total">${suggestionTotal(Number(s.quantity), suggestionPriceCents(s.price))}</strong></p><label>Concurso de destino<input name="contest" data-suggest-input="contest" type="number" min="1" max="2147483647" step="1" value="${esc(s.contest || suggestionContest(s.game))}" required ${s.busy?'disabled':''}></label><p class="fine">Preço de referência da Caixa conferido em ${dateLabel(PRICE_CHECKED)}. <a class="official-link" href="https://loterias.caixa.gov.br/Paginas/${PRICE_SOURCES[s.game]}.aspx" target="_blank" rel="noopener noreferrer">Conferir preço e regras ↗</a>. Atualize o campo se necessário; o custo usa o preço informado. ${g.min} dezenas por jogo. Limite de ${batchLimit(s.game)} jogos por geração${s.game==='lotomania'?' para calcular a cobertura por inclusão-exclusão':''}.</p>${remaining!==null?`<p class="fine">Saldo mensal disponível pelos registros: <strong>${money(remaining/100)}</strong>. O total precisa caber nesse saldo.</p>`:''}<button class="primary" type="submit" ${s.busy?'disabled':''}>${s.busy?'Calculando…':'Gerar sugestões com cobertura'}</button>${s.busy?'<button class="secondary" type="button" data-action="cancel-suggestions">Cancelar</button>':''}</form><button class="small-button suggestion-import" data-action="import-suggestions" ${s.busy?'disabled':''}>Importar lote para registro</button><input type="file" id="suggestions-file" accept="application/json,.json" hidden><p id="suggestion-error" class="error" role="alert">${esc(s.error||'')}</p><p id="suggestion-progress" class="muted" role="status">${s.busy?esc(s.progress):''}</p></section><section class="panel suggestion-method"><span class="eyebrow">COMO A ESCOLHA FUNCIONA</span><h2>Combinações, não previsões.</h2><ol><li>Calcula o custo da quantidade de apostas escolhida.</li><li>Gera candidatos aleatórios e evita repetir jogos já cobertos pelas suas apostas registradas no concurso.</li><li>${s.game==='lotomania'?'Prioriza a cobertura de 20 acertos. Em caso de empate, escolhe o candidato que cobre mais resultados com 19 ou mais.':'Preserva combinações distintas para o prêmio principal e busca maior cobertura de '+(g.drawn-1)+' ou mais acertos.'}</li><li>Mostra o lote assim que a cobertura é calculada e compara o histórico em seguida.</li></ol><p class="fine">As dezenas não são escolhidas pela frequência passada. Para o mesmo número de apostas simples distintas, a chance do prêmio principal é igual${s.game==='lotomania'?' nas modalidades com aposta simples igual ao tamanho do sorteio; a Lotomania exige outro cálculo':''}. A distribuição muda a cobertura conjunta das demais faixas.</p></section></div><div id="suggestions-output">${s.result?suggestionOutput():''}</div>`;
 }
 function incrementalOutput(game, incremental) {
   if (!incremental) return '';
@@ -317,11 +317,76 @@ function coverageProgress(game, generated, priceCents) {
     <p class="fine">Cada linha adiciona o próximo jogo da lista, na ordem sugerida.</p>
   </section>`;
 }
+function suggestionSelection(result) {
+  const count = result.selected?.size || 0;
+  return count ? `${count}/${result.generated.tickets.length} selecionados · ${money(count * result.plan.priceCents / 100)}` : 'Selecione os jogos que constam no comprovante.';
+}
+function updateSuggestionSelection(result) {
+  $('#suggestion-selection').textContent = suggestionSelection(result);
+  $('[data-action="register-selection"]').disabled = !result.selected?.size;
+}
+function registerSelection() {
+  const result = suggestionState.result;
+  if (!result?.selected?.size) return;
+  const indexes = [...result.selected].sort((a, b) => a - b);
+  openEditor('bet', null, {
+    game: result.game,
+    contest: result.contest,
+    priceCents: result.plan.priceCents,
+    tickets: indexes.map(index => ({ index, numbers: result.generated.tickets[index] })),
+    result,
+  });
+}
+function suggestionTickets(r) {
+  return `<div class="selection-toolbar"><span id="suggestion-selection" role="status">${suggestionSelection(r)}</span><button class="small-button" data-action="select-all-suggestions">Selecionar todos</button><button class="primary" data-action="register-selection" ${r.selected?.size ? '' : 'disabled'}>Registrar jogos selecionados</button></div><div class="suggestion-ticket-grid">${r.generated.tickets.map((ticket,index)=>`<article class="record"><div class="record-heading"><h3>Jogo ${String(index+1).padStart(2,'0')}</h3><span class="muted">${money(r.plan.priceCents/100)}</span></div><label class="ticket-selection"><input type="checkbox" data-select-suggestion="${index}" aria-label="Selecionar jogo ${index + 1}" ${r.selected?.has(index) ? 'checked' : ''} ${r.registered?.has(index) ? 'disabled' : ''}>${r.registered?.has(index) ? 'Já registrado neste lote' : 'Selecionar para registro'}</label>${balls(r.game,ticket)}<div class="record-actions"><button class="small-button" data-save-suggestion="${index}">♡ Salvar favorito</button><button class="small-button" data-check-suggestion="${index}">Conferir histórico</button><button class="small-button" data-use-suggestion="${index}">Usar no editor</button></div></article>`).join('')}</div>`;
+}
+async function importSuggestions(input) {
+  const file = input.files?.[0];
+  if (!file || suggestionState.busy || !state.user) return;
+  const user = state.user;
+  const run = suggestionState.run;
+  const result = suggestionState.result;
+  const stillCurrent = () => state.user === user && state.page === 'suggestions' &&
+    suggestionState.run === run && suggestionState.result === result && !suggestionState.busy;
+  try {
+    if (file.size > 262144) throw new Error('Arquivo maior que o limite de 256 KB.');
+    const { game, contest, plan, generated } = JSON.parse(await file.text());
+    const tickets = generated?.tickets;
+    const priceCents = plan?.priceCents;
+    if (!Object.hasOwn(GAMES, game) || !Number.isInteger(contest) || contest < 1 || contest > 2147483647 ||
+        !Number.isInteger(priceCents) || priceCents < 1 || priceCents > 100000000 ||
+        !Array.isArray(tickets) || tickets.length < 1 || tickets.length > batchLimit(game) ||
+        tickets.some(numbers => !validateNumbers(game, numbers) || numbers.length !== GAMES[game].min)) {
+      throw new Error('O arquivo não contém um lote de sugestões válido.');
+    }
+    const normalized = tickets.map(numbers => [...numbers].sort((a, b) => a - b));
+    if (new Set(normalized.map(numbers => numbers.join(','))).size !== normalized.length) {
+      throw new Error('O arquivo contém jogos repetidos.');
+    }
+    if (!stillCurrent()) return;
+    suggestionState.game = game;
+    suggestionState.quantity = String(tickets.length);
+    suggestionState.price = (priceCents / 100).toFixed(2);
+    suggestionState.contest = String(contest);
+    suggestionState.error = null;
+    suggestionState.result = { game, contest, plan: { priceCents }, generated: { tickets: normalized }, imported: true };
+    render();
+    $('#suggestions-output').scrollIntoView?.({ block: 'start' });
+  } catch (error) {
+    if (stillCurrent()) {
+      $('#suggestion-error').textContent = error instanceof SyntaxError ? 'O arquivo não contém JSON válido.' : errorMessage(error);
+      input.value = '';
+    }
+  }
+}
 function suggestionOutput() {
   const r=suggestionState.result;if(!r)return '';
+  if (r.imported) {
+    return `<section class="suggestion-results" style="${gameStyle(r.game)}"><h2>Lote importado · ${GAMES[r.game].name} · concurso ${r.contest}</h2>${suggestionTickets(r)}</section>`;
+  }
   const g=GAMES[r.game],cov=r.generated.coverage;
   const title = coverageStatus(cov, { main: cov.mainUpperBound, near: cov.nearUpperBound }, 'na segunda faixa ou melhor');
-  return `<section class="suggestion-results" style="${gameStyle(r.game)}"><div class="section-heading"><div><h2>Seu lote · concurso ${r.contest}</h2><p>${r.generated.tickets.length} jogos distintos de ${g.min} dezenas. Nada foi apostado ou debitado.</p></div><button class="small-button" data-action="export-suggestions">↓ Exportar análise</button></div><div class="stats suggestion-stats"><div class="stat"><span class="stat-label">Custo estimado do lote</span><strong class="stat-value">${money(r.plan.costCents/100)}</strong><span class="stat-note">${money(r.plan.priceCents/100)} por jogo</span></div><div class="stat"><span class="stat-label">Chance do prêmio principal</span><strong class="stat-value suggestion-odds">${oddsLabel(cov.main,cov.total)}</strong><span class="stat-note">Do lote inteiro${r.game==='duplasena'?' · por sorteio':''}</span></div><div class="stat"><span class="stat-label">${`Chance de ${cov.nearHits} ou mais acertos`}</span><strong class="stat-value suggestion-odds">${oddsLabel(cov.near,cov.total)}</strong><span class="stat-note">União exata, incluindo o prêmio principal${r.game==='duplasena'?' · por sorteio':''}</span></div></div><div class="notice"><strong>${title}</strong><br>Hipótese: todos os resultados válidos são equiprováveis. Os cartões acima mostram as chances dos jogos sugeridos neste lote.</div>${duplaContestOutput(cov)}${incrementalOutput(r.game, r.generated.incremental)}${r.generated.incrementalUnavailable ? '<p class="notice">A comparação conjunta na Lotomania está disponível para até oito jogos distintos, contando os registrados e os novos. Neste lote, a tabela considera somente as sugestões.</p>' : ''}${coverageProgress(r.game, r.generated, r.plan.priceCents)}<div class="suggestion-ticket-grid">${r.generated.tickets.map((ticket,index)=>`<article class="record"><div class="record-heading"><h3>Jogo ${String(index+1).padStart(2,'0')}</h3><span class="muted">${money(r.plan.priceCents/100)}</span></div>${balls(r.game,ticket)}<div class="record-actions"><button class="small-button" data-save-suggestion="${index}">♡ Salvar favorito</button><button class="small-button" data-check-suggestion="${index}">Conferir histórico</button><button class="small-button" data-use-suggestion="${index}">Usar no editor</button></div></article>`).join('')}</div><div id="suggestion-audit" aria-live="polite">${suggestionAuditOutput(r)}</div><section class="panel retrospective-panel"><details><summary>Ver método e contagens verificáveis</summary><p class="fine">${esc(r.generated.method)} · ${r.generated.candidatesEvaluated} candidatos avaliados em ${r.generated.attempts} ${r.generated.attempts === 1 ? 'tentativa' : 'tentativas'}. ${r.game==='lotomania'?'Busca sequencial por cobertura de 20 acertos, seguida de 19 ou mais e menor repetição de dezenas.':'O app busca ampliar a cobertura da segunda faixa mantendo a prioridade do prêmio principal.'} Não usa treino preditivo.</p><p class="exact-count">Resultados principais cobertos: ${cov.main.toString()} de ${cov.total.toString()}.</p>${cov.near!==null?`<p class="exact-count">Resultados com ${cov.nearHits} ou mais acertos: ${cov.near.toString()} de ${cov.total.toString()}.</p>`:''}<p class="fine">Na Mega-Sena e demais apostas simples com tamanho igual ao sorteio, a união da faixa imediatamente abaixo é enumerada sem contar resultados duas vezes. Na Lotomania, a inclusão-exclusão conta os sorteios de 20 dezenas que geram 20 ou pelo menos 19 acertos em algum jogo. Os decimais das chances são arredondados para apresentação.</p></details></section></section>`;
+  return `<section class="suggestion-results" style="${gameStyle(r.game)}"><div class="section-heading"><div><h2>Seu lote · concurso ${r.contest}</h2><p>${r.generated.tickets.length} jogos distintos de ${g.min} dezenas. Nada foi apostado ou debitado.</p></div><button class="small-button" data-action="export-suggestions">↓ Exportar análise</button></div><div class="stats suggestion-stats"><div class="stat"><span class="stat-label">Custo estimado do lote</span><strong class="stat-value">${money(r.plan.costCents/100)}</strong><span class="stat-note">${money(r.plan.priceCents/100)} por jogo</span></div><div class="stat"><span class="stat-label">Chance do prêmio principal</span><strong class="stat-value suggestion-odds">${oddsLabel(cov.main,cov.total)}</strong><span class="stat-note">Do lote inteiro${r.game==='duplasena'?' · por sorteio':''}</span></div><div class="stat"><span class="stat-label">${`Chance de ${cov.nearHits} ou mais acertos`}</span><strong class="stat-value suggestion-odds">${oddsLabel(cov.near,cov.total)}</strong><span class="stat-note">União exata, incluindo o prêmio principal${r.game==='duplasena'?' · por sorteio':''}</span></div></div><div class="notice"><strong>${title}</strong><br>Hipótese: todos os resultados válidos são equiprováveis. Os cartões acima mostram as chances dos jogos sugeridos neste lote.</div>${duplaContestOutput(cov)}${incrementalOutput(r.game, r.generated.incremental)}${r.generated.incrementalUnavailable ? '<p class="notice">A comparação conjunta na Lotomania está disponível para até oito jogos distintos, contando os registrados e os novos. Neste lote, a tabela considera somente as sugestões.</p>' : ''}${coverageProgress(r.game, r.generated, r.plan.priceCents)}${suggestionTickets(r)}<div id="suggestion-audit" aria-live="polite">${suggestionAuditOutput(r)}</div><section class="panel retrospective-panel"><details><summary>Ver método e contagens verificáveis</summary><p class="fine">${esc(r.generated.method)} · ${r.generated.candidatesEvaluated} candidatos avaliados em ${r.generated.attempts} ${r.generated.attempts === 1 ? 'tentativa' : 'tentativas'}. ${r.game==='lotomania'?'Busca sequencial por cobertura de 20 acertos, seguida de 19 ou mais e menor repetição de dezenas.':'O app busca ampliar a cobertura da segunda faixa mantendo a prioridade do prêmio principal.'} Não usa treino preditivo.</p><p class="exact-count">Resultados principais cobertos: ${cov.main.toString()} de ${cov.total.toString()}.</p>${cov.near!==null?`<p class="exact-count">Resultados com ${cov.nearHits} ou mais acertos: ${cov.near.toString()} de ${cov.total.toString()}.</p>`:''}<p class="fine">Na Mega-Sena e demais apostas simples com tamanho igual ao sorteio, a união da faixa imediatamente abaixo é enumerada sem contar resultados duas vezes. Na Lotomania, a inclusão-exclusão conta os sorteios de 20 dezenas que geram 20 ou pelo menos 19 acertos em algum jogo. Os decimais das chances são arredondados para apresentação.</p></details></section></section>`;
 }
 function suggestionAuditOutput(result) {
   if (!result.audit) {
@@ -438,12 +503,14 @@ function useSuggestion(index,action) {
   const r=suggestionState.result,ticket=r?.generated.tickets[index];if(!ticket)return;
   if(action==='check'){openHistory(r.game,ticket);return;}
   state.game=r.game;state.numbers=[...ticket];state.quantity=ticket.length;
-  if(action==='save'){openEditor('favorite');$('#editor-form [name="name"]').value=`Sugestão ${index+1} · ${GAMES[r.game].name}`;$('#editor-form [name="notes"]').value=`Lote gerado para o concurso ${r.contest}. Método: ${r.generated.method}. Registro de favorito, não de aposta realizada.`;}
+  builderBetDefaults = { contest: r.contest, game: r.game };
+  if(action==='save'){openEditor('favorite');$('#editor-form [name="name"]').value=`Sugestão ${index+1} · ${GAMES[r.game].name}`;$('#editor-form [name="notes"]').value=`Lote gerado para o concurso ${r.contest}. Método: ${r.generated.method || 'lote importado'}. Registro de favorito, não de aposta realizada.`;}
   else navigate('builder');
 }
 function exportSuggestions() {
   const result=suggestionState.result;if(!result)return;
-  const serialized=JSON.stringify(result,(_key,value)=>typeof value==='bigint'?value.toString():value,2);
+  const { selected, registered, ...analysis } = result;
+  const serialized=JSON.stringify(analysis,(_key,value)=>typeof value==='bigint'?value.toString():value,2);
   const url=URL.createObjectURL(new Blob([serialized],{type:'application/json'}));
   const link=document.createElement('a');link.href=url;link.download=`sugestoes-${result.game}-${result.contest}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
@@ -473,9 +540,40 @@ function betCheckSummary(bet) {
   const entry=checkedBet(bet);
   return `<div class="bet-check-summary ${entry?.status==='checked'&&entry.hasPrize?'awarded':''}"><div><strong>${betCheckLabel(entry)}</strong>${entry?.draws?`<p>${entry.draws.map(d=>`${bet.game==='duplasena'?d.draw+'º sorteio: ':''}${d.hits} acerto${d.hits===1?'':'s'}`).join(' · ')}</p>`:''}${entry?.status==='error'?`<p class="error">${esc(entry.error)}</p>`:''}${entry?.status==='pending'?'<p>O concurso está além do último resultado publicado pela Caixa.</p>':''}</div><div><span class="muted">Prêmio calculado</span><strong>${entry?.totalCents!=null?money(entry.totalCents/100):'—'}</strong></div></div>`;
 }
+// Keep each game independently checkable in the existing bets table.
+const betGroupPrefix = /^\[loteria-assistente:lote:([a-f0-9-]{36})\]\n/;
+function betNotes(notes = '') {
+  const raw = notes || '';
+  const match = raw.match(betGroupPrefix);
+  return { group: match?.[1], text: match ? raw.slice(match[0].length) : raw };
+}
+function groupBetNotes(group, text) {
+  return group ? `[loteria-assistente:lote:${group}]\n${text}` : text;
+}
+function betGroups(rows) {
+  const groups = new Map();
+  for (const bet of rows) {
+    const group = betNotes(bet.notes).group;
+    const key = group ? `group:${group}` : bet.id;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(bet);
+  }
+  return [...groups.values()].map(tickets => {
+    const cards = tickets.map(betCard).join('');
+    if (tickets.length === 1) return cards;
+    const total = tickets.reduce((sum, bet) => sum + Math.round(Number(bet.cost) * 100), 0);
+    const first = tickets[0];
+    const sameContest = tickets.every(bet => bet.game === first.game && bet.contest === first.contest);
+    const title = sameContest ? `${GAMES[first.game].name} · Concurso ${first.contest}` : 'Apostas agrupadas';
+    return `<details class="record bet-group"><summary><strong>${title}</strong><span>${tickets.length} jogos · ${money(total / 100)}</span></summary><div class="record-list">${cards}</div></details>`;
+  }).join('');
+}
+function betCard(b) {
+  return `<article class="record" style="${gameStyle(b.game)}"><div class="record-heading"><div><h3>${GAMES[b.game].name} · Concurso ${b.contest}</h3><span class="muted">Aposta em ${dateLabel(b.bet_date)}</span></div><span class="pill">${b.prize_received === null ? 'SEM VALOR RECEBIDO INFORMADO' : 'VALOR RECEBIDO INFORMADO'}</span></div>${balls(b.game, b.numbers)}${betCheckSummary(b)}<div class="prize-data"><div><span class="muted">Valor apostado</span><strong>${money(b.cost)}</strong></div><div><span class="muted">Recebido · informado por você</span><strong>${b.prize_received === null ? '—' : money(b.prize_received)}</strong></div></div>${betNotes(b.notes).text ? `<p class="record-notes" style="margin-top:14px">${esc(betNotes(b.notes).text)}</p>` : ''}<div class="record-actions"><button class="small-button" data-check-bet="${b.id}">Ver conferência</button><button class="small-button" data-edit-bet="${b.id}">Editar registro</button><button class="small-button" data-delete-bet="${b.id}">Excluir</button></div></article>`;
+}
 function bets() {
   const rows = state.bets.filter(b => !state.filter || b.game === state.filter);
-  return filterHeader('Seu histórico de apostas', rows.length) + `<div class="notice">Conferência automática ao entrar e a cada cinco minutos com o app aberto e visível. O prêmio calculado usa o rateio do concurso; o valor recebido continua sendo informado por você.</div><div class="results-toolbar"><p class="muted" role="status">${betChecks.busy?'Conferindo apostas na Caixa…':'A conferência não confirma pagamento nem resgate.'}</p><button class="small-button" data-action="check-bets" ${betChecks.busy||!rows.length?'disabled':''}>↻ Conferir apostas${state.filter?' desta modalidade':''}</button></div>` + (rows.length ? `<div class="record-list">${rows.map(b => `<article class="record" style="${gameStyle(b.game)}"><div class="record-heading"><div><h3>${GAMES[b.game].name} · Concurso ${b.contest}</h3><span class="muted">Aposta em ${dateLabel(b.bet_date)}</span></div><span class="pill">${b.prize_received === null ? 'SEM VALOR RECEBIDO INFORMADO' : 'VALOR RECEBIDO INFORMADO'}</span></div>${balls(b.game, b.numbers)}${betCheckSummary(b)}<div class="prize-data"><div><span class="muted">Valor apostado</span><strong>${money(b.cost)}</strong></div><div><span class="muted">Recebido · informado por você</span><strong>${b.prize_received === null ? '—' : money(b.prize_received)}</strong></div></div>${b.notes ? `<p class="record-notes" style="margin-top:14px">${esc(b.notes)}</p>` : ''}<div class="record-actions"><button class="small-button" data-check-bet="${b.id}">Ver conferência</button><button class="small-button" data-edit-bet="${b.id}">Editar registro</button><button class="small-button" data-delete-bet="${b.id}">Excluir</button></div></article>`).join('')}</div>` : empty('Suas apostas, sem perder o controle.', 'Monte um jogo ou abra um favorito e selecione “Registrar aposta” depois de jogar na Caixa.'));
+  return filterHeader('Seu histórico de apostas', rows.length) + `<div class="notice">Conferência automática ao entrar e a cada cinco minutos com o app aberto e visível. O prêmio calculado usa o rateio do concurso; o valor recebido continua sendo informado por você.</div><div class="results-toolbar"><p class="muted" role="status">${betChecks.busy?'Conferindo apostas na Caixa…':'A conferência não confirma pagamento nem resgate.'}</p><button class="small-button" data-action="check-bets" ${betChecks.busy||!rows.length?'disabled':''}>↻ Conferir apostas${state.filter?' desta modalidade':''}</button></div>` + (rows.length ? `<div class="record-list">${betGroups(rows)}</div>` : empty('Suas apostas, sem perder o controle.', 'Monte um jogo ou abra um favorito e selecione “Registrar aposta” depois de jogar na Caixa.'));
 }
 async function refreshBetChecks(force=false, id=null) {
   if(!state.user||betChecks.busy)return;
@@ -553,6 +651,7 @@ async function activateSession(session) {
   if (session?.user?.id !== CONFIG.ownerId) {
     if (session) { await client.auth.signOut({ scope: 'local' }); $('#login-error').textContent = 'Esta conta não está autorizada a usar este aplicativo.'; }
     betChecks.run++; betChecks.busy=false; betChecks.entries.clear(); betChecks.selected=null; $('#bet-check-dialog').close();
+    builderBetDefaults = null;
     state.user = null; state.loaded = false; state.bets = []; state.favorites = []; state.numbers = []; state.page = 'overview'; state.settings = { monthly_budget: 0, theme: 'system' }; loadGeneration++;
     $('#app').hidden = true; $('#content').replaceChildren(); $('#login-screen').hidden = false; $('#editor').close(); $('#results-dialog').close(); closeHistory(); closeStatistics(); cancelSuggestions(false); suggestionState.result=null; suggestionState.quantity=''; $('#password').value = ''; applyTheme();
     return;
@@ -562,47 +661,132 @@ async function activateSession(session) {
   $('#login-screen').hidden = true; $('#app').hidden = false;
   render(); await loadData();
 }
-function setGame(game) { if (!GAMES[game]) return; state.game = game; state.numbers = []; state.quantity = GAMES[game].min; state.page = 'builder'; render(); }
+function setGame(game) { if (!GAMES[game]) return; builderBetDefaults = null; state.game = game; state.numbers = []; state.quantity = GAMES[game].min; state.page = 'builder'; render(); }
 function useFavorite(id, register = false) {
   const f = state.favorites.find(f => f.id === id); if (!f) return;
+  builderBetDefaults = null;
   state.game = f.game; state.numbers = [...f.numbers]; state.quantity = f.numbers.length;
   if (register) openEditor('bet'); else navigate('builder');
 }
-function openEditor(type, record = null) {
-  const game = record?.game || state.game;
-  const numbers = record?.numbers || state.numbers;
-  if (!validateNumbers(game, numbers)) { toast('Selecione uma combinação válida.'); return; }
-  editorContext = { type, record, game, numbers: [...numbers].sort((a, b) => a - b) };
-  $('#dialog-title').textContent = type === 'favorite' ? (record ? 'Editar favorito' : 'Salvar favorito') : (record ? 'Editar aposta' : 'Registrar aposta realizada');
+async function fillEditorContest(context, input) {
+  try {
+    const latest = await fetchOfficial(baseGame(context.game));
+    const next = context.game === 'megadavirada'
+      ? specialEstimate({ latest, fetchedAt: new Date().toISOString() })
+      : latest.next;
+    if (editorContext === context && $('#editor').open && !input.value && !context.contestEdited &&
+        (next?.drawDate || next?.date) >= localDate() && next.contest > latest.contest) {
+      input.value = next.contest;
+    }
+  } catch { /* Allow entry from the receipt when the official source is unavailable. */ }
+}
+
+function openEditor(type, record = null, selection = null) {
+  if ($('#editor').open || mutationPending) return;
+  const game = selection?.game || record?.game || state.game;
+  const tickets = selection?.tickets || [{ numbers: record?.numbers || state.numbers }];
+  if (!tickets.length || tickets.some(ticket => !validateNumbers(game, ticket.numbers))) {
+    toast('Selecione uma combinação válida.');
+    return;
+  }
+  const multi = tickets.length > 1;
+  const numbers = [...tickets[0].numbers].sort((a, b) => a - b);
+  const context = { type, record, game, numbers, selection, multi };
+  if (selection) {
+    context.ids = tickets.map(() => crypto.randomUUID());
+    if (multi) context.group = crypto.randomUUID();
+  }
+  editorContext = context;
+  $('#dialog-title').textContent = type === 'favorite' ? (record ? 'Editar favorito' : 'Salvar favorito')
+    : record ? 'Editar aposta' : multi ? 'Registrar apostas em grupo' : 'Registrar aposta realizada';
   $('#dialog-eyebrow').textContent = GAMES[game].name;
-  const notes = `<label>Observações<textarea name="notes" maxlength="2000">${esc(record?.notes || '')}</textarea></label>`;
-  $('#editor-fields').innerHTML = balls(game, numbers) + (type === 'favorite'
+  const savedNotes = type === 'bet' ? betNotes(record?.notes) : { text: record?.notes };
+  const notes = `<label>Observações<textarea name="notes" maxlength="${multi || savedNotes.group ? 1900 : 2000}">${esc(savedNotes.text || '')}</textarea></label>`;
+  const suggestedContest = builderBetDefaults?.game === game ? builderBetDefaults.contest : suggestionContest(game);
+  const contest = record?.contest || selection?.contest || suggestedContest;
+  const preview = multi ? `<details class="selected-bet-preview"><summary>${tickets.length} jogos selecionados</summary>
+    ${tickets.map(ticket => `<div><strong>Jogo ${String(ticket.index + 1).padStart(2, '0')}</strong>${balls(game, ticket.numbers)}</div>`).join('')}</details>` : balls(game, numbers);
+  const price = record?.cost ?? (selection ? (selection.priceCents / 100).toFixed(2) : '');
+  $('#editor-fields').innerHTML = preview + (type === 'favorite'
     ? `<label>Nome da combinação<input name="name" maxlength="100" placeholder="Ex.: Meu jogo de sábado" value="${esc(record?.name || '')}"></label>${notes}`
-    : `<div class="fields-row"><label>Concurso<input name="contest" type="number" min="1" max="2147483647" step="1" value="${record?.contest || ''}" required></label><label>Data da aposta<input name="bet_date" type="date" value="${record?.bet_date || localDate()}" required></label></div><div class="fields-row"><label>Valor apostado (R$)<input name="cost" type="number" min="0.01" max="9999999999.99" step="0.01" value="${record?.cost ?? ''}" required></label><label>Prêmio recebido (R$)<input name="prize_received" type="number" min="0" max="999999999999.99" step="0.01" value="${record?.prize_received ?? ''}" placeholder="Opcional"></label></div>${notes}<p class="fine">Somente registro pessoal. O app não envia apostas para a Caixa.</p>`);
-  $('#editor-error').textContent = ''; $('#editor-save').disabled = false; $('#editor').showModal();
+    : `<div class="fields-row"><label>Concurso<input name="contest" type="number" min="1" max="2147483647" step="1" value="${contest || ''}" required></label><label>Data da aposta<input name="bet_date" type="date" value="${record?.bet_date || localDate()}" required></label></div>
+    <div class="fields-row"><label>${multi ? 'Valor por jogo (R$)' : 'Valor apostado (R$)'}<input name="cost" type="number" min="0.01" max="9999999999.99" step="0.01" value="${price}" required></label>${multi
+      ? `<div class="batch-cost"><span>Total apostado</span><strong id="batch-total">${money(selection.priceCents * tickets.length / 100)}</strong></div>`
+      : `<label>Prêmio recebido (R$)<input name="prize_received" type="number" min="0" max="999999999999.99" step="0.01" value="${record?.prize_received ?? ''}" placeholder="Opcional"></label>`}</div>
+    ${notes}<p class="fine">Confira o concurso e o valor no comprovante da Caixa.${multi ? ' Você pode informar o prêmio recebido em cada jogo depois.' : ''}</p>`);
+  $('#editor-error').textContent = '';
+  $('#editor-save').disabled = false;
+  $('#editor').showModal();
+  if (type === 'bet' && !contest) {
+    const input = $('#editor-form [name="contest"]');
+    input.addEventListener('input', () => { context.contestEdited = true; }, { once: true });
+    void fillEditorContest(context, input);
+  }
+  if (multi) {
+    const input = $('#editor-form [name="cost"]');
+    input.addEventListener('input', () => {
+      const cents = Math.round(Number(input.value) * 100);
+      $('#batch-total').textContent = input.validity.valid ? money(cents * tickets.length / 100) : '—';
+    });
+  }
 }
 async function saveEditor(event) {
   event.preventDefault(); if (mutationPending || !editorContext || !state.user) return;
   const current = editorContext;
   const form = new FormData(event.target);
   const payload = { user_id: state.user.id, game: current.game, numbers: current.numbers, notes: String(form.get('notes') || '').trim() };
+  let rows;
   if (current.type === 'favorite') {
     payload.name = String(form.get('name') || '').trim();
     const duplicate = state.favorites.find(f => f.id !== current.record?.id && f.game === payload.game && [...f.numbers].sort((a,b) => a-b).join(',') === payload.numbers.join(','));
     if (duplicate) { $('#editor-error').textContent = 'Essa combinação já está nos seus favoritos.'; return; }
   } else {
-    payload.contest = Number(form.get('contest')); payload.bet_date = form.get('bet_date'); payload.cost = Number(form.get('cost'));
-    payload.prize_received = form.get('prize_received') === '' ? null : Number(form.get('prize_received'));
-    if (!Number.isInteger(payload.contest) || payload.contest < 1 || !(payload.cost > 0) || !payload.bet_date) { $('#editor-error').textContent = 'Confira concurso, data e valor da aposta.'; return; }
-    const duplicate = state.bets.find(b => b.id !== current.record?.id && b.game === payload.game && b.contest === payload.contest && [...b.numbers].sort((a,b) => a-b).join(',') === payload.numbers.join(','));
-    if (duplicate && !confirm('Esta combinação já está registrada nesse concurso. Você realmente fez outra aposta igual?')) return;
+    payload.contest = Number(form.get('contest'));
+    payload.bet_date = form.get('bet_date');
+    payload.cost = Number(form.get('cost'));
+    payload.prize_received = form.get('prize_received') ? Number(form.get('prize_received')) : null;
+    if (!Number.isInteger(payload.contest) || payload.contest < 1 || !(payload.cost > 0) || !payload.bet_date) {
+      $('#editor-error').textContent = 'Confira concurso, data e valor da aposta.';
+      return;
+    }
+    payload.notes = groupBetNotes(current.group || betNotes(current.record?.notes).group, payload.notes);
+    rows = current.selection
+      ? current.selection.tickets.map((ticket, index) => ({
+        ...payload, id: current.ids[index], numbers: [...ticket.numbers].sort((a, b) => a - b),
+      }))
+      : [payload];
+    const alreadyRegistered = new Set(state.bets
+      .filter(bet => bet.id !== current.record?.id && bet.game === payload.game && bet.contest === payload.contest)
+      .map(bet => [...bet.numbers].sort((a, b) => a - b).join(',')));
+    const duplicates = rows.filter(row => alreadyRegistered.has(row.numbers.join(','))).length;
+    if (duplicates && !confirm(duplicates === 1
+      ? 'Uma combinação já está registrada nesse concurso. Você realmente fez outra aposta igual?'
+      : `${duplicates} combinações já estão registradas nesse concurso. Você realmente fez essas apostas novamente?`)) return;
   }
-  mutationPending = true; $('#editor-save').disabled = true;
+  mutationPending = true;
+  $('#editor-save').disabled = true;
   try {
     const table = current.type === 'favorite' ? 'favorites' : 'bets';
-    const query = current.record ? client.from(table).update(payload).eq('id', current.record.id) : client.from(table).insert(payload);
-    const { error } = await query.select().single(); if (error) throw error;
-    $('#editor').close(); toast('Registro salvo na sua conta.'); state.page = current.type === 'favorite' ? 'favorites' : 'bets'; await loadData();
+    if (current.selection) {
+      // The array is sent in one write. Stable primary keys make retries idempotent.
+      const { error } = await client.from(table).insert(rows);
+      if (error) {
+        const saved = await client.from(table).select('id').in('id', current.ids);
+        if (saved.error || saved.data?.length !== rows.length) throw error;
+      }
+      current.selection.result.selected.clear();
+      current.selection.result.registered ??= new Set();
+      for (const ticket of current.selection.tickets) current.selection.result.registered.add(ticket.index);
+    } else {
+      const query = current.record ? client.from(table).update(payload).eq('id', current.record.id) : client.from(table).insert(payload);
+      const { error } = await query.select().single();
+      if (error) throw error;
+    }
+    $('#editor').close();
+    toast(current.multi ? 'Grupo salvo em Minhas apostas.' : 'Registro salvo na sua conta.');
+    state.page = current.type === 'favorite' ? 'favorites' : 'bets';
+    state.filter = '';
+    await loadData();
   } catch (error) { $('#editor-error').textContent = errorMessage(error); }
   finally { mutationPending = false; $('#editor-save').disabled = false; }
 }
@@ -677,6 +861,16 @@ document.addEventListener('change', event => {
   if(statFilters[event.target.id]){const id=event.target.id;statisticsState[statFilters[id]]=id==='statistics-limit'?Number(event.target.value):event.target.value;renderStatistics();document.getElementById(id)?.focus({preventScroll:true});return;}
   if (event.target.id === 'history-scope') { historyState.scope = event.target.value; historyState.limit = 40; if (historyState.data) historyState.result = checkCombination(historyState.data, historyState.game, historyState.numbers, historyState.scope); renderHistory(); }
   if (event.target.id === 'history-filter') { historyState.filter = event.target.value; historyState.limit = 40; renderHistory(); }
+  if (event.target.id === 'suggestions-file') void importSuggestions(event.target);
+  if (event.target.dataset.selectSuggestion !== undefined) {
+    const result = suggestionState.result;
+    if (!result) return;
+    const index = Number(event.target.dataset.selectSuggestion);
+    result.selected ??= new Set();
+    if (event.target.checked && !result.registered?.has(index)) result.selected.add(index);
+    else result.selected.delete(index);
+    updateSuggestionSelection(result);
+  }
   if (event.target.id === 'quantity') {
     const g = GAMES[state.game], value = Number(event.target.value);
     if (!Number.isInteger(value) || value < g.min || value > g.max) { toast(`Escolha uma quantidade de ${g.min} a ${g.max}.`); event.target.value = state.quantity; } else state.quantity = value;
@@ -726,6 +920,17 @@ document.addEventListener('click', event => {
   if (d.deleteFavorite) void deleteRecord('favorites', d.deleteFavorite);
   if (d.deleteBet) void deleteRecord('bets', d.deleteBet);
   const actions = { 'check-bets': () => void refreshBetChecks(true), 'refresh-statistics': () => void loadStatistics(), 'cancel-suggestions': () => cancelSuggestions(), 'export-suggestions': exportSuggestions, 'check-history': () => openHistory(state.game, state.numbers), 'refresh-history': () => void runHistory(), 'more-history': () => { historyState.limit += 40; renderHistory(); }, generate: () => { state.numbers = generateNumbers(state.game, state.quantity); render(); }, clear: () => { state.numbers = []; render(); }, favorite: () => openEditor('favorite'), bet: () => openEditor('bet'), export: exportRecords, 'refresh-results': () => void refreshResults(), logout: () => void logout(), reload: () => void loadData() };
+  if (d.action === 'import-suggestions') $('#suggestions-file').click();
+  if (d.action === 'register-selection') registerSelection();
+  if (d.action === 'select-all-suggestions' && suggestionState.result) {
+    const result = suggestionState.result;
+    result.selected = new Set();
+    for (const checkbox of document.querySelectorAll('[data-select-suggestion]:enabled')) {
+      checkbox.checked = true;
+      result.selected.add(Number(checkbox.dataset.selectSuggestion));
+    }
+    updateSuggestionSelection(result);
+  }
   if (d.action) actions[d.action]?.();
 });
 document.addEventListener('input', event => {

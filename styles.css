@@ -28,3 +28,16 @@ html[data-theme=dark]{--bg:#15211c;--surface:#1e2c25;--text:#e0eadf;--muted:#a0a
 .suggestion-total strong{margin-left:6px;font-size:16px}
 .suggestion-stats{grid-template-columns:repeat(3,minmax(0,1fr))}
 @media(max-width:700px){.suggestion-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.selection-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-top:24px}
+.selection-toolbar [role=status]{flex:1 1 12rem;font-size:13px;color:var(--muted)}
+.ticket-selection{display:inline-flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer}
+.ticket-selection input{appearance:auto;width:18px;height:18px;margin:0;padding:0;accent-color:var(--game)}
+.selected-bet-preview{margin-bottom:16px}
+.selected-bet-preview summary,.bet-group summary{cursor:pointer}
+.selected-bet-preview>div{margin-top:14px}
+.batch-cost{display:grid;align-content:center;gap:4px;border-radius:8px;background:var(--bg);padding:8px 12px}
+.batch-cost span{font-size:12px;color:var(--muted)}
+.bet-group summary span{margin-left:10px;color:var(--muted);font-size:13px}
+.bet-group .record-list{margin-top:16px}
+.suggestion-import{margin-top:14px}
