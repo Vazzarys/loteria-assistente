@@ -4,7 +4,7 @@ import { SOURCE, RESULT_GAMES, fetchOfficial, loadGameWeek, weeklyRecords, lates
 import { loadHistorical, checkCombination, baseGame } from './history.js';
 import { SIMPLE_PRICES, PRICE_CHECKED, PRICE_SOURCES, batchLimit, planBudget, generatePortfolio, historicalAudit, oddsLabel } from './suggestions.js?v=0.7.0';
 import { analyzeStatistics } from './statistics.js';
-import { betSignature, checkRegisteredBets } from './settlements.js';
+import { betSignature, checkRegisteredBets, summarizeBetGroup } from './settlements.js?v=0.7.3';
 
 const $ = s => document.querySelector(s);
 const state = { user: null, favorites: [], bets: [], settings: { monthly_budget: 0, theme: 'system' }, page: 'overview', game: 'megasena', numbers: [], quantity: 6, filter: '', loaded: false };
@@ -551,6 +551,7 @@ function groupBetNotes(group, text) {
   return group ? `[loteria-assistente:lote:${group}]\n${text}` : text;
 }
 function betGroups(rows) {
+  const expanded = new Set([...document.querySelectorAll('.bet-group[open]')].map(group => group.dataset.betGroup));
   const groups = new Map();
   for (const bet of rows) {
     const group = betNotes(bet.notes).group;
@@ -558,18 +559,37 @@ function betGroups(rows) {
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(bet);
   }
-  return [...groups.values()].map(tickets => {
-    const cards = tickets.map(betCard).join('');
-    if (tickets.length === 1) return cards;
+  return [...groups].map(([key, tickets]) => {
+    if (tickets.length === 1) return betCard(tickets[0]);
     const total = tickets.reduce((sum, bet) => sum + Math.round(Number(bet.cost) * 100), 0);
     const first = tickets[0];
     const sameContest = tickets.every(bet => bet.game === first.game && bet.contest === first.contest);
     const title = sameContest ? `${GAMES[first.game].name} · Concurso ${first.contest}` : 'Apostas agrupadas';
-    return `<details class="record bet-group"><summary><strong>${title}</strong><span>${tickets.length} jogos · ${money(total / 100)}</span></summary><div class="record-list">${cards}</div></details>`;
+    const result = summarizeBetGroup(tickets.map(checkedBet), sameContest);
+    const best = result.bestByDraw;
+    const twoDraws = best.length === 2;
+    const cards = tickets.map((bet, index) => {
+      const highlights = best.filter(draw => draw.leaders.includes(index)).map(draw =>
+        `${draw.leaders.length > 1 ? 'Empate nos maiores acertos' : 'Mais acertos do grupo'}${twoDraws ? ` · ${draw.draw}º sorteio` : ''}`);
+      return betCard(bet, highlights);
+    }).join('');
+    const hits = best.map(draw => `${twoDraws ? `${draw.draw}º sorteio: ` : ''}${draw.hits} acerto${draw.hits === 1 ? '' : 's'}${draw.leaders.length > 1 ? ` (${draw.leaders.length} jogos empatados)` : ''}`).join(' · ');
+    const progress = `${result.compared} de ${tickets.length} jogos conferidos`;
+    const prize = result.totalCents !== null
+      ? money(result.totalCents / 100)
+      : result.compared === tickets.length ? 'Rateio a confirmar' : 'Aguardando conferência';
+    return `<details class="record bet-group" data-bet-group="${esc(key)}" ${expanded.has(key) ? 'open' : ''}>
+      <summary><strong>${title}</strong><span>${tickets.length} jogos · ${money(total / 100)}</span><span>${hits || progress}</span></summary>
+      <div class="bet-check-summary bet-group-result">
+        <div><span class="muted">${hits ? 'Maiores acertos' : 'Conferência dos jogos'}</span><strong>${hits || progress}</strong></div>
+        <div><span class="muted">Prêmio calculado do grupo</span><strong>${prize}</strong></div>
+      </div>
+      <div class="record-list">${cards}</div>
+    </details>`;
   }).join('');
 }
-function betCard(b) {
-  return `<article class="record" style="${gameStyle(b.game)}"><div class="record-heading"><div><h3>${GAMES[b.game].name} · Concurso ${b.contest}</h3><span class="muted">Aposta em ${dateLabel(b.bet_date)}</span></div><span class="pill">${b.prize_received === null ? 'SEM VALOR RECEBIDO INFORMADO' : 'VALOR RECEBIDO INFORMADO'}</span></div>${balls(b.game, b.numbers)}${betCheckSummary(b)}<div class="prize-data"><div><span class="muted">Valor apostado</span><strong>${money(b.cost)}</strong></div><div><span class="muted">Recebido · informado por você</span><strong>${b.prize_received === null ? '—' : money(b.prize_received)}</strong></div></div>${betNotes(b.notes).text ? `<p class="record-notes" style="margin-top:14px">${esc(betNotes(b.notes).text)}</p>` : ''}<div class="record-actions"><button class="small-button" data-check-bet="${b.id}">Ver conferência</button><button class="small-button" data-edit-bet="${b.id}">Editar registro</button><button class="small-button" data-delete-bet="${b.id}">Excluir</button></div></article>`;
+function betCard(b, highlights = []) {
+  return `<article class="record" style="${gameStyle(b.game)}">${highlights.length ? `<div class="bet-highlights">${highlights.map(label => `<span>${label}</span>`).join('')}</div>` : ''}<div class="record-heading"><div><h3>${GAMES[b.game].name} · Concurso ${b.contest}</h3><span class="muted">Aposta em ${dateLabel(b.bet_date)}</span></div><span class="pill">${b.prize_received === null ? 'SEM VALOR RECEBIDO INFORMADO' : 'VALOR RECEBIDO INFORMADO'}</span></div>${balls(b.game, b.numbers)}${betCheckSummary(b)}<div class="prize-data"><div><span class="muted">Valor apostado</span><strong>${money(b.cost)}</strong></div><div><span class="muted">Recebido · informado por você</span><strong>${b.prize_received === null ? '—' : money(b.prize_received)}</strong></div></div>${betNotes(b.notes).text ? `<p class="record-notes" style="margin-top:14px">${esc(betNotes(b.notes).text)}</p>` : ''}<div class="record-actions"><button class="small-button" data-check-bet="${b.id}">Ver conferência</button><button class="small-button" data-edit-bet="${b.id}">Editar registro</button><button class="small-button" data-delete-bet="${b.id}">Excluir</button></div></article>`;
 }
 function bets() {
   const rows = state.bets.filter(b => !state.filter || b.game === state.filter);

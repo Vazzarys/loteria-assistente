@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {settleBet,checkRegisteredBets,betSignature} from '../settlements.js';
+import {settleBet,checkRegisteredBets,betSignature,summarizeBetGroup} from '../settlements.js';
 import {GAMES} from '../core.js';
 import {normalizeResult} from '../results.js';
 const today='2026-11-10';
@@ -94,4 +94,31 @@ test('Cancelamento não publica resultados e assinatura invalida edições de co
  assert.equal(out.size,0);assert.equal(published,0);
  assert.equal(betSignature(bet),betSignature({...bet,numbers:[...bet.numbers].reverse()}));
  assert.notEqual(betSignature(bet),betSignature({...bet,contest:10}));
+});
+
+test('resumo mantém placar pendente até conferir todos os jogos e só soma rateios confirmados', () => {
+  const first = { status: 'checked', totalCents: 601, draws: [{ draw: 1, hits: 11 }] };
+  const second = { status: 'rateio', totalCents: null, draws: [{ draw: 1, hits: 12 }] };
+  assert.deepEqual(summarizeBetGroup([first, null, { status: 'pending' }]), {
+    compared: 1, bestByDraw: [], totalCents: null,
+  });
+  assert.deepEqual(summarizeBetGroup([first, second]), {
+    compared: 2, bestByDraw: [{ draw: 1, hits: 12, leaders: [1] }], totalCents: null,
+  });
+  assert.equal(summarizeBetGroup([first, { ...second, status: 'checked', totalCents: 1324 }]).totalCents, 1925);
+});
+
+test('resumo preserva empates e avalia cada sorteio da Dupla Sena separadamente', () => {
+  const entry = (first, second) => ({
+    status: 'checked', totalCents: 0, draws: [{ draw: 1, hits: first }, { draw: 2, hits: second }],
+  });
+  assert.deepEqual(summarizeBetGroup([entry(2, 1), entry(2, 0), entry(1, 2)]), {
+    compared: 3,
+    bestByDraw: [{ draw: 1, hits: 2, leaders: [0, 1] }, { draw: 2, hits: 2, leaders: [2] }],
+    totalCents: 0,
+  });
+  const singleDraw = { ...entry(0, 0), draws: [{ draw: 1, hits: 0 }] };
+  assert.deepEqual(summarizeBetGroup([entry(2, 1), singleDraw], false), {
+    compared: 2, bestByDraw: [], totalCents: 0,
+  });
 });

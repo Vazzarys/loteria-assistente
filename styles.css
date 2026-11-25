@@ -41,3 +41,8 @@ html[data-theme=dark]{--bg:#15211c;--surface:#1e2c25;--text:#e0eadf;--muted:#a0a
 .bet-group summary span{margin-left:10px;color:var(--muted);font-size:13px}
 .bet-group .record-list{margin-top:16px}
 .suggestion-import{margin-top:14px}
+
+.bet-group summary span{display:inline-block}
+.bet-group-result{margin-bottom:0}
+.bet-highlights{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.bet-highlights span{padding:5px 9px;border-radius:6px;background:var(--game-soft);color:var(--game);font-size:12px;font-weight:700}

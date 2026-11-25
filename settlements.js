@@ -40,6 +40,22 @@ export function settleBet(bet, result, today=localDate()) {
   return {status:complete?'checked':'rateio',contest:result.contest,date,draws:rows,totalCents:complete?Number(total):null,hasPrize:rows.some(r=>r.awards.length>0)};
 }
 
+export function summarizeBetGroup(entries, compareDraws = true) {
+  const compared = entries.filter(entry => entry?.draws?.length).length;
+  const allCompared = entries.length > 0 && compared === entries.length;
+  const bestByDraw = allCompared && compareDraws ? entries[0].draws.map(({ draw }, index) => {
+    const scores = entries.map(entry => entry.draws[index].hits);
+    const hits = Math.max(...scores);
+    return { draw, hits, leaders: scores.flatMap((score, ticket) => score === hits ? [ticket] : []) };
+  }) : [];
+  const allPriced = allCompared && entries.every(entry => entry.status === 'checked' && Number.isSafeInteger(entry.totalCents));
+  return {
+    compared,
+    bestByDraw,
+    totalCents: allPriced ? entries.reduce((sum, entry) => sum + entry.totalCents, 0) : null,
+  };
+}
+
 // Consultas são agrupadas por modalidade/concurso; nenhum dado pessoal é gravado aqui.
 export async function checkRegisteredBets(bets,{fetcher=fetch,onResult=()=>{},isCancelled=()=>false,today=localDate()}={}) {
   const groups=new Map(), latest=new Map(), output=new Map();
