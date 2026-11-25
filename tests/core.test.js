@@ -44,3 +44,14 @@ test('resumo mensal ignora outros meses e diferencia prêmio não informado', ()
 test('texto do usuário é escapado antes de entrar no HTML', () => {
   assert.equal(escapeHTML('<img src=x onerror="alert(1)">'), '&lt;img src=x onerror=&quot;alert(1)&quot;&gt;');
 });
+
+test('resumo financeiro soma o histórico em centavos e mantém o filtro por mês', () => {
+  const bets = [
+    { bet_date: '2026-10-31', cost: '3.50', prize_received: '7.00' },
+    { bet_date: '2026-11-01', cost: '0.10', prize_received: null },
+    { bet_date: '2026-11-02', cost: '0.20', prize_received: '0.00' },
+  ];
+  assert.deepEqual(financialSummary(bets), { cost: 3.8, prizes: 7, count: 3 });
+  assert.deepEqual(financialSummary(bets, '2026-11'), { cost: 0.3, prizes: 0, count: 2 });
+  assert.deepEqual(financialSummary([]), { cost: 0, prizes: 0, count: 0 });
+});

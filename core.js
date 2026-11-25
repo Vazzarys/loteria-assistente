@@ -54,7 +54,9 @@ export function weekBounds(date = new Date()) {
 export function money(value) { return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0); }
 export function dateLabel(date) { return date ? date.split('-').reverse().join('/') : '—'; }
 export function escapeHTML(value) { return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
-export function financialSummary(bets, month) {
-  const rows = bets.filter(b => b.bet_date.startsWith(month));
-  return { cost: rows.reduce((s, b) => s + Number(b.cost), 0), prizes: rows.reduce((s, b) => s + Number(b.prize_received || 0), 0), count: rows.length };
+export function financialSummary(bets, month = '') {
+  const rows = bets.filter(bet => !month || bet.bet_date.startsWith(month));
+  const costCents = rows.reduce((sum, bet) => sum + Math.round(Number(bet.cost) * 100), 0);
+  const prizeCents = rows.reduce((sum, bet) => sum + Math.round(Number(bet.prize_received || 0) * 100), 0);
+  return { cost: costCents / 100, prizes: prizeCents / 100, count: rows.length };
 }

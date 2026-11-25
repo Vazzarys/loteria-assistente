@@ -4,6 +4,8 @@ Aplicativo pessoal e responsivo, hospedável no GitHub Pages, com autenticação
 
 ## Etapa atual: registros pessoais, painel semanal, conferência, sugestões e estatísticas
 
+No topo da Visão geral, o resumo financeiro compara o total apostado, os prêmios recebidos informados e o saldo. O período padrão é todo o histórico. A opção **Este mês** filtra pela data registrada da aposta, no horário de Brasília.
+
 - Login por e-mail e senha do usuário já criado no Supabase.
 - Seleção manual e geração aleatória de combinações para Mega-Sena, Mega da Virada, Lotofácil, Quina, Lotomania e Dupla Sena.
 - Probabilidades combinatórias do prêmio principal (Dupla Sena: por sorteio).

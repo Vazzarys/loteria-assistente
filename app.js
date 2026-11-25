@@ -1,5 +1,5 @@
 import { CONFIG } from './config.js';
-import { GAMES, validateNumbers, jackpotOdds, generateNumbers, localDate, weekBounds, money, dateLabel, escapeHTML as esc, financialSummary } from './core.js';
+import { GAMES, validateNumbers, jackpotOdds, generateNumbers, localDate, weekBounds, money, dateLabel, escapeHTML as esc, financialSummary } from './core.js?v=0.7.4';
 import { SOURCE, RESULT_GAMES, fetchOfficial, loadGameWeek, weeklyRecords, latestWeeklyWinner, timestampLabel, readCache, saveCache, specialEstimate } from './results.js';
 import { loadHistorical, checkCombination, baseGame } from './history.js';
 import { SIMPLE_PRICES, PRICE_CHECKED, PRICE_SOURCES, batchLimit, planBudget, generatePortfolio, historicalAudit, oddsLabel } from './suggestions.js?v=0.7.0';
@@ -7,7 +7,7 @@ import { analyzeStatistics } from './statistics.js';
 import { betSignature, checkRegisteredBets, summarizeBetGroup } from './settlements.js?v=0.7.3';
 
 const $ = s => document.querySelector(s);
-const state = { user: null, favorites: [], bets: [], settings: { monthly_budget: 0, theme: 'system' }, page: 'overview', game: 'megasena', numbers: [], quantity: 6, filter: '', loaded: false };
+const state = { user: null, favorites: [], bets: [], settings: { monthly_budget: 0, theme: 'system' }, page: 'overview', game: 'megasena', numbers: [], quantity: 6, filter: '', financePeriod: 'all', loaded: false };
 const navigation = [ ['overview', '◫', 'Visão geral'], ['builder', '⊕', 'Montar jogo'], ['suggestions', '✧', 'Sugestões'], ['favorites', '♡', 'Favoritos'], ['bets', '▤', 'Minhas apostas'], ['settings', '⚙', 'Ajustes'] ];
 let client, editorContext, builderBetDefaults, toastTimer, loadGeneration = 0, signingIn = false, mutationPending = false;
 const resultsState = { entries: readCache(), errors: {}, busy: false, initialized: false, lastAttempt: 0, selectedGame: null, week: weekBounds().start };
@@ -46,12 +46,48 @@ function render() {
   $('#content').innerHTML = pages[state.page]();
   applyTheme();
 }
+function financePanel(summary, month) {
+  const period = state.financePeriod;
+  const { cost, prizes, count } = period === 'month' ? summary : financialSummary(state.bets);
+  const balance = (Math.round(prizes * 100) - Math.round(cost * 100)) / 100;
+  const scale = Math.max(cost, prizes);
+  const width = value => scale > 0 ? (value / scale * 100).toFixed(4) : 0;
+  const metrics = [
+    { label: 'Total apostado', value: cost, kind: 'spent' },
+    { label: 'Prêmios recebidos', value: prizes, kind: 'received' },
+  ];
+  return `<section class="finance-panel" aria-labelledby="finance-title">
+    <div class="finance-heading">
+      <h2 id="finance-title">Seu histórico financeiro</h2>
+      <div class="finance-periods" role="group" aria-label="Período do resumo">
+        <button type="button" data-finance-period="all" aria-pressed="${period === 'all'}">Todo o histórico</button>
+        <button type="button" data-finance-period="month" aria-pressed="${period === 'month'}">Este mês</button>
+      </div>
+    </div>
+    <div class="finance-grid" aria-live="polite">
+      ${metrics.map(({ label, value, kind }) => `<div class="finance-metric finance-${kind}">
+        <span>${label}</span><strong>${money(value)}</strong>
+        <div class="finance-track" aria-hidden="true"><span style="--extent:${width(value)}%"></span></div>
+      </div>`).join('')}
+      <div class="finance-metric finance-balance" data-balance="${Math.sign(balance)}">
+        <span>Saldo</span><strong>${balance > 0 ? '+' : ''}${money(balance)}</strong>
+        <small>Recebido menos apostado</small>
+      </div>
+    </div>
+    <p class="finance-note">${count ? `${count} ${count === 1 ? 'jogo registrado' : 'jogos registrados'}` : 'Nenhum jogo registrado no período'}${period === 'month' ? ` · ${month.slice(5)}/${month.slice(0, 4)} pela data da aposta` : ''} · Prêmios recebidos conforme informado em Minhas apostas.</p>
+  </section>`;
+}
 function overview() {
-  const summary = financialSummary(state.bets, localDate().slice(0, 7));
+  const month = localDate().slice(0, 7);
+  const summary = financialSummary(state.bets, month);
   const budget = Number(state.settings.monthly_budget);
   const week = weekBounds();
-  return `<section class="hero"><div><span class="eyebrow">CADA JOGO NO SEU LUGAR</span><h2>Olá, Junior. Vamos organizar?</h2><p>Guarde suas combinações e acompanhe suas apostas com clareza, dentro do seu orçamento.</p></div><span class="hero-mark" aria-hidden="true">✣</span></section>
-    <section class="stats" aria-label="Resumo pessoal"><div class="stat"><span class="stat-label">Combinações favoritas</span><strong class="stat-value">${state.favorites.length}</strong><span class="stat-note">Guardadas na sua conta</span></div><div class="stat"><span class="stat-label">Apostas neste mês</span><strong class="stat-value">${summary.count}</strong><span class="stat-note">Por data da aposta</span></div><div class="stat"><span class="stat-label">Investido neste mês</span><strong class="stat-value">${money(summary.cost)}</strong><span class="stat-note">${budget ? `Orçamento: ${money(budget)}` : 'Defina um orçamento em Ajustes'}</span>${budget ? `<div class="budget-line ${summary.cost > budget ? 'exceeded' : ''}"><span style="width:${Math.min(100, summary.cost / budget * 100)}%"></span></div>` : ''}</div><div class="stat"><span class="stat-label">Prêmios registrados no mês</span><strong class="stat-value">${money(summary.prizes)}</strong><span class="stat-note">Informados por você • data da aposta</span></div></section>
+  return `${financePanel(summary, month)}
+    <section class="stats overview-stats" aria-label="Resumo pessoal">
+      <div class="stat"><span class="stat-label">Combinações favoritas</span><strong class="stat-value">${state.favorites.length}</strong></div>
+      <div class="stat"><span class="stat-label">Apostas neste mês</span><strong class="stat-value">${summary.count}</strong><span class="stat-note">Por data da aposta</span></div>
+      ${budget ? `<div class="stat"><span class="stat-label">Orçamento usado no mês</span><strong class="stat-value">${money(summary.cost)}</strong><span class="stat-note">Limite de ${money(budget)}</span><div class="budget-line ${summary.cost > budget ? 'exceeded' : ''}"><span style="width:${Math.min(100, summary.cost / budget * 100)}%"></span></div></div>` : ''}
+    </section>
     <div class="section-heading"><div><h2>Suas modalidades</h2><p>Painel de premiações da semana</p></div><span class="week-pill">${dateLabel(week.start).slice(0, 5)} — ${dateLabel(week.end).slice(0, 5)}</span></div>
     <div class="results-toolbar"><p class="muted">Fonte: Loterias Caixa · Valores estimados não são prêmios já pagos.</p><button class="small-button" data-action="refresh-results" ${resultsState.busy ? 'disabled' : ''}>${resultsState.busy ? 'Consultando Caixa…' : '↻ Atualizar resultados'}</button></div>
     <section class="game-cards">${Object.keys(GAMES).map(resultCard).join('')}</section>
@@ -672,7 +708,7 @@ async function activateSession(session) {
     if (session) { await client.auth.signOut({ scope: 'local' }); $('#login-error').textContent = 'Esta conta não está autorizada a usar este aplicativo.'; }
     betChecks.run++; betChecks.busy=false; betChecks.entries.clear(); betChecks.selected=null; $('#bet-check-dialog').close();
     builderBetDefaults = null;
-    state.user = null; state.loaded = false; state.bets = []; state.favorites = []; state.numbers = []; state.page = 'overview'; state.settings = { monthly_budget: 0, theme: 'system' }; loadGeneration++;
+    state.user = null; state.loaded = false; state.bets = []; state.favorites = []; state.numbers = []; state.page = 'overview'; state.financePeriod = 'all'; state.settings = { monthly_budget: 0, theme: 'system' }; loadGeneration++;
     $('#app').hidden = true; $('#content').replaceChildren(); $('#login-screen').hidden = false; $('#editor').close(); $('#results-dialog').close(); closeHistory(); closeStatistics(); cancelSuggestions(false); suggestionState.result=null; suggestionState.quantity=''; $('#password').value = ''; applyTheme();
     return;
   }
@@ -913,6 +949,12 @@ document.addEventListener('click', event => {
   const button = event.target.closest('button'); if (!button || button.disabled) return;
   const d = button.dataset;
   if (d.page) navigate(d.page);
+  if (d.financePeriod === 'all' || d.financePeriod === 'month') {
+    state.financePeriod = d.financePeriod;
+    const month = localDate().slice(0, 7);
+    $('.finance-panel').outerHTML = financePanel(financialSummary(state.bets, month), month);
+    $(`[data-finance-period="${d.financePeriod}"]`)?.focus({ preventScroll: true });
+  }
   if (d.build) setGame(d.build);
   if (d.results) openResults(d.results);
   if (d.game) setGame(d.game);
