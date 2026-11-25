@@ -1,10 +1,10 @@
 import { CONFIG } from './config.js';
-import { GAMES, validateNumbers, jackpotOdds, generateNumbers, localDate, weekBounds, money, dateLabel, escapeHTML as esc, financialSummary } from './core.js?v=0.7.4';
+import { GAMES, validateNumbers, jackpotOdds, generateNumbers, localDate, weekBounds, money, dateLabel, escapeHTML as esc, financialSummary } from './core.js?v=0.7.5';
 import { SOURCE, RESULT_GAMES, fetchOfficial, loadGameWeek, weeklyRecords, latestWeeklyWinner, timestampLabel, readCache, saveCache, specialEstimate } from './results.js';
 import { loadHistorical, checkCombination, baseGame } from './history.js';
 import { SIMPLE_PRICES, PRICE_CHECKED, PRICE_SOURCES, batchLimit, planBudget, generatePortfolio, historicalAudit, oddsLabel } from './suggestions.js?v=0.7.0';
 import { analyzeStatistics } from './statistics.js';
-import { betSignature, checkRegisteredBets, summarizeBetGroup } from './settlements.js?v=0.7.3';
+import { betSignature, checkRegisteredBets, summarizeBetGroup, prizeForFinance } from './settlements.js?v=0.7.5';
 
 const $ = s => document.querySelector(s);
 const state = { user: null, favorites: [], bets: [], settings: { monthly_budget: 0, theme: 'system' }, page: 'overview', game: 'megasena', numbers: [], quantity: 6, filter: '', financePeriod: 'all', loaded: false };
@@ -46,9 +46,10 @@ function render() {
   $('#content').innerHTML = pages[state.page]();
   applyTheme();
 }
-function financePanel(summary, month) {
+function financeValues(month) {
   const period = state.financePeriod;
-  const { cost, prizes, count } = period === 'month' ? summary : financialSummary(state.bets);
+  const { cost, prizes, count } = financialSummary(state.bets, period === 'month' ? month : '',
+    bet => prizeForFinance(bet, checkedBet(bet)));
   const balance = (Math.round(prizes * 100) - Math.round(cost * 100)) / 100;
   const scale = Math.max(cost, prizes);
   const width = value => scale > 0 ? (value / scale * 100).toFixed(4) : 0;
@@ -56,6 +57,20 @@ function financePanel(summary, month) {
     { label: 'Total apostado', value: cost, kind: 'spent' },
     { label: 'Prêmios recebidos', value: prizes, kind: 'received' },
   ];
+  return `<div class="finance-grid">
+      ${metrics.map(({ label, value, kind }) => `<div class="finance-metric finance-${kind}">
+        <span>${label}</span><strong>${money(value)}</strong>
+        <div class="finance-track" aria-hidden="true"><span style="--extent:${width(value)}%"></span></div>
+      </div>`).join('')}
+      <div class="finance-metric finance-balance" data-balance="${Math.sign(balance)}">
+        <span>Saldo</span><strong>${balance > 0 ? '+' : ''}${money(balance)}</strong>
+        <small>Prêmios menos valor apostado</small>
+      </div>
+    </div>
+    <p class="finance-note">${count ? `${count} ${count === 1 ? 'jogo registrado' : 'jogos registrados'}` : 'Nenhum jogo registrado no período'}${period === 'month' ? ` · ${month.slice(5)}/${month.slice(0, 4)} pela data da aposta` : ''} · Os prêmios entram pelo rateio da Caixa ou pelo valor informado em Minhas apostas.</p>`;
+}
+function financePanel(month) {
+  const period = state.financePeriod;
   return `<section class="finance-panel" aria-labelledby="finance-title">
     <div class="finance-heading">
       <h2 id="finance-title">Seu histórico financeiro</h2>
@@ -64,25 +79,19 @@ function financePanel(summary, month) {
         <button type="button" data-finance-period="month" aria-pressed="${period === 'month'}">Este mês</button>
       </div>
     </div>
-    <div class="finance-grid" aria-live="polite">
-      ${metrics.map(({ label, value, kind }) => `<div class="finance-metric finance-${kind}">
-        <span>${label}</span><strong>${money(value)}</strong>
-        <div class="finance-track" aria-hidden="true"><span style="--extent:${width(value)}%"></span></div>
-      </div>`).join('')}
-      <div class="finance-metric finance-balance" data-balance="${Math.sign(balance)}">
-        <span>Saldo</span><strong>${balance > 0 ? '+' : ''}${money(balance)}</strong>
-        <small>Recebido menos apostado</small>
-      </div>
-    </div>
-    <p class="finance-note">${count ? `${count} ${count === 1 ? 'jogo registrado' : 'jogos registrados'}` : 'Nenhum jogo registrado no período'}${period === 'month' ? ` · ${month.slice(5)}/${month.slice(0, 4)} pela data da aposta` : ''} · Prêmios recebidos conforme informado em Minhas apostas.</p>
+    <div id="finance-values" aria-live="polite">${financeValues(month)}</div>
   </section>`;
+}
+function updateFinanceValues() {
+  const values = $('#finance-values');
+  if (values) values.innerHTML = financeValues(localDate().slice(0, 7));
 }
 function overview() {
   const month = localDate().slice(0, 7);
   const summary = financialSummary(state.bets, month);
   const budget = Number(state.settings.monthly_budget);
   const week = weekBounds();
-  return `${financePanel(summary, month)}
+  return `${financePanel(month)}
     <section class="stats overview-stats" aria-label="Resumo pessoal">
       <div class="stat"><span class="stat-label">Combinações favoritas</span><strong class="stat-value">${state.favorites.length}</strong></div>
       <div class="stat"><span class="stat-label">Apostas neste mês</span><strong class="stat-value">${summary.count}</strong><span class="stat-note">Por data da aposta</span></div>
@@ -645,7 +654,7 @@ async function refreshBetChecks(force=false, id=null) {
       updateBetCheckViews();
     }});
   }finally{
-    if(run===betChecks.run){betChecks.busy=false;updateBetCheckViews();if(state.bets.some(b=>!checkedBet(b)))void refreshBetChecks();}
+    if(run===betChecks.run){betChecks.busy=false;updateBetCheckViews();updateFinanceValues();if(state.bets.some(b=>!checkedBet(b)))void refreshBetChecks();}
   }
 }
 function updateBetCheckViews() {
@@ -951,9 +960,10 @@ document.addEventListener('click', event => {
   if (d.page) navigate(d.page);
   if (d.financePeriod === 'all' || d.financePeriod === 'month') {
     state.financePeriod = d.financePeriod;
-    const month = localDate().slice(0, 7);
-    $('.finance-panel').outerHTML = financePanel(financialSummary(state.bets, month), month);
-    $(`[data-finance-period="${d.financePeriod}"]`)?.focus({ preventScroll: true });
+    for (const option of document.querySelectorAll('[data-finance-period]')) {
+      option.setAttribute('aria-pressed', String(option === button));
+    }
+    updateFinanceValues();
   }
   if (d.build) setGame(d.build);
   if (d.results) openResults(d.results);

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {settleBet,checkRegisteredBets,betSignature,summarizeBetGroup} from '../settlements.js';
+import {settleBet,checkRegisteredBets,betSignature,summarizeBetGroup,prizeForFinance} from '../settlements.js';
 import {GAMES} from '../core.js';
 import {normalizeResult} from '../results.js';
 const today='2026-11-10';
@@ -121,4 +121,13 @@ test('resumo preserva empates e avalia cada sorteio da Dupla Sena separadamente'
   assert.deepEqual(summarizeBetGroup([entry(2, 1), singleDraw], false), {
     compared: 2, bestByDraw: [], totalCents: 0,
   });
+});
+
+test('painel inclui o rateio confirmado e dá precedência ao valor informado', () => {
+  const checked = { status: 'checked', totalCents: 700 };
+  assert.equal(prizeForFinance({ prize_received: null }, checked), 7);
+  assert.equal(prizeForFinance({ prize_received: '6.00' }, checked), 6);
+  assert.equal(prizeForFinance({ prize_received: 0 }, checked), 0);
+  assert.equal(prizeForFinance({ prize_received: null }, { status: 'rateio', totalCents: null }), 0);
+  assert.equal(prizeForFinance({ prize_received: null }, null), 0);
 });

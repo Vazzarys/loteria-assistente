@@ -40,6 +40,11 @@ export function settleBet(bet, result, today=localDate()) {
   return {status:complete?'checked':'rateio',contest:result.contest,date,draws:rows,totalCents:complete?Number(total):null,hasPrize:rows.some(r=>r.awards.length>0)};
 }
 
+export function prizeForFinance(bet, entry) {
+  if (bet.prize_received != null) return Number(bet.prize_received);
+  return entry?.status === 'checked' && Number.isSafeInteger(entry.totalCents) ? entry.totalCents / 100 : 0;
+}
+
 export function summarizeBetGroup(entries, compareDraws = true) {
   const compared = entries.filter(entry => entry?.draws?.length).length;
   const allCompared = entries.length > 0 && compared === entries.length;
