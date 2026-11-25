@@ -22,7 +22,7 @@ O módulo Sugestões prioriza o prêmio principal e usa cobertura combinatória 
 
 ## Conferência automática de apostas
 
-Minhas apostas consulta cada concurso registrado ao entrar e após sincronizar os dados, e verifica novamente a cada cinco minutos com o aplicativo aberto e visível. Também permite atualização manual, geral por modalidade filtrada ou individual em Ver conferência. Não há execução no servidor quando o app está fechado, nem alterações de esquema ou novas permissões no Supabase.
+O app consulta cada concurso registrado ao entrar e após sincronizar os dados, e verifica novamente a cada cinco minutos com o aplicativo aberto e visível. Quando recebe um resultado oficial, confere imediatamente os jogos registrados naquele concurso e atualiza o resumo financeiro assim que o rateio permite calcular o prêmio. Também permite atualização manual, geral por modalidade filtrada ou individual em Ver conferência. Não há execução no servidor quando o app está fechado, nem alterações de esquema ou novas permissões no Supabase.
 
 Em grupos de um mesmo concurso, o resumo destaca o maior número de acertos e identifica todos os jogos empatados. Na Dupla Sena, a comparação é separada por sorteio. O prêmio calculado do grupo soma os valores por jogo quando todos estão confirmados pelo rateio.
 

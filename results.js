@@ -73,11 +73,12 @@ export async function fetchOfficial(game, contest, fetcher = fetch) {
   if (contest && record.contest !== contest) throw new Error('A Caixa retornou outro concurso');
   return record;
 }
-export async function loadGameWeek(game, previous = null, now = new Date(), fetcher = fetch) {
+export async function loadGameWeek(game, previous = null, now = new Date(), fetcher = fetch, onOfficialResult = () => {}) {
   const { start, end } = weekBounds(now);
   const fetchedAt = new Date().toISOString();
   const latest = await fetchOfficial(game, null, fetcher);
   if (latest.date > localDate(now)) throw new Error('Fonte com data de sorteio futura');
+  onOfficialResult(latest);
   const records = [];
   let cursor = latest, complete = false, error = null;
   for (let i = 0; i < 16; i++) {
@@ -92,6 +93,7 @@ export async function loadGameWeek(game, previous = null, now = new Date(), fetc
       const cached = weeklyRecords(previous, now).find(r => r.contest === cursor.previous);
       const older = cached || await fetchOfficial(game, cursor.previous, fetcher);
       if (older.contest >= cursor.contest || older.date > cursor.date) throw new Error('Histórico fora de ordem na fonte');
+      if (!cached) onOfficialResult(older);
       cursor = older;
     } catch (e) { error = e.message; break; }
   }

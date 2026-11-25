@@ -1,10 +1,10 @@
 import { CONFIG } from './config.js';
 import { GAMES, validateNumbers, jackpotOdds, generateNumbers, localDate, weekBounds, money, dateLabel, escapeHTML as esc, financialSummary } from './core.js?v=0.7.5';
-import { SOURCE, RESULT_GAMES, fetchOfficial, loadGameWeek, weeklyRecords, latestWeeklyWinner, timestampLabel, readCache, saveCache, specialEstimate } from './results.js';
+import { SOURCE, RESULT_GAMES, fetchOfficial, loadGameWeek, weeklyRecords, latestWeeklyWinner, timestampLabel, readCache, saveCache, specialEstimate } from './results.js?v=0.7.6';
 import { loadHistorical, checkCombination, baseGame } from './history.js';
 import { SIMPLE_PRICES, PRICE_CHECKED, PRICE_SOURCES, batchLimit, planBudget, generatePortfolio, historicalAudit, oddsLabel } from './suggestions.js?v=0.7.0';
 import { analyzeStatistics } from './statistics.js';
-import { betSignature, checkRegisteredBets, summarizeBetGroup, prizeForFinance } from './settlements.js?v=0.7.5';
+import { betSignature, checkRegisteredBets, summarizeBetGroup, prizeForFinance, settleBet } from './settlements.js?v=0.7.5';
 
 const $ = s => document.querySelector(s);
 const state = { user: null, favorites: [], bets: [], settings: { monthly_budget: 0, theme: 'system' }, page: 'overview', game: 'megasena', numbers: [], quantity: 6, filter: '', financePeriod: 'all', loaded: false };
@@ -136,11 +136,14 @@ function renderResultsDialog() {
 }
 async function refreshResults() {
   if (resultsState.busy || !state.user) return;
+  const user = state.user;
   resultsState.busy = true; resultsState.initialized = true; resultsState.lastAttempt = Date.now();
   if (state.page === 'overview' && state.loaded) render();
   await Promise.all(RESULT_GAMES.map(async game => {
     try {
-      const entry = await loadGameWeek(game, resultsState.entries[game]);
+      const entry = await loadGameWeek(game, resultsState.entries[game], new Date(), fetch, record => {
+        if (state.user === user) checkBetsForResult(game, record);
+      });
       resultsState.entries[game] = entry;
       if (entry.error) resultsState.errors[game] = entry.error; else delete resultsState.errors[game];
     } catch (error) {
@@ -638,19 +641,50 @@ function betCard(b, highlights = []) {
 }
 function bets() {
   const rows = state.bets.filter(b => !state.filter || b.game === state.filter);
-  return filterHeader('Seu histórico de apostas', rows.length) + `<div class="notice">Conferência automática ao entrar e a cada cinco minutos com o app aberto e visível. O prêmio calculado usa o rateio do concurso; o valor recebido continua sendo informado por você.</div><div class="results-toolbar"><p class="muted" role="status">${betChecks.busy?'Conferindo apostas na Caixa…':'A conferência não confirma pagamento nem resgate.'}</p><button class="small-button" data-action="check-bets" ${betChecks.busy||!rows.length?'disabled':''}>↻ Conferir apostas${state.filter?' desta modalidade':''}</button></div>` + (rows.length ? `<div class="record-list">${betGroups(rows)}</div>` : empty('Suas apostas, sem perder o controle.', 'Monte um jogo ou abra um favorito e selecione “Registrar aposta” depois de jogar na Caixa.'));
+  return filterHeader('Seu histórico de apostas', rows.length) + `<div class="notice">O app confere seus jogos quando consulta a Caixa e inclui os prêmios com rateio confirmado no resumo financeiro. A consulta roda ao entrar e se repete com o app aberto e visível.</div><div class="results-toolbar"><p class="muted" role="status">${betChecks.busy?'Conferindo apostas na Caixa…':'A conferência não confirma pagamento nem resgate.'}</p><button class="small-button" data-action="check-bets" ${betChecks.busy||!rows.length?'disabled':''}>↻ Conferir apostas${state.filter?' desta modalidade':''}</button></div>` + (rows.length ? `<div class="record-list">${betGroups(rows)}</div>` : empty('Suas apostas, sem perder o controle.', 'Monte um jogo ou abra um favorito e selecione “Registrar aposta” depois de jogar na Caixa.'));
+}
+function checkBetsForResult(game, record) {
+  const checkedAt = new Date().toISOString();
+  let changed = false;
+  for (const bet of state.bets) {
+    if (bet.contest !== record.contest || baseGame(bet.game) !== game) continue;
+    let entry;
+    try {
+      entry = settleBet(bet, record);
+    } catch (error) {
+      entry = { status: 'error', error: error.message };
+    }
+    storeBetCheck(bet, { ...entry, checkedAt, signature: betSignature(bet) });
+    changed = true;
+  }
+  if (changed) {
+    updateBetCheckViews();
+    updateFinanceValues();
+  }
+}
+function storeBetCheck(bet, entry) {
+  const previous = checkedBet(bet);
+  if ((entry.status === 'error' || entry.status === 'pending') && previous?.draws) {
+    // Keep the last available result if a later consultation loses access to it.
+    betChecks.entries.set(bet.id, { ...previous, checkedAt: entry.checkedAt });
+    return;
+  }
+  betChecks.entries.set(bet.id, entry);
 }
 async function refreshBetChecks(force=false, id=null) {
   if(!state.user||betChecks.busy)return;
   const snapshot=state.bets.filter(b=>(!id||b.id===id)&&(!force||id||!state.filter||b.game===state.filter)).filter(b=>force||!checkedBet(b)||Date.now()-Date.parse(checkedBet(b).checkedAt)>=300000);
   if(!snapshot.length)return;
+  const previousEntries = new Map(snapshot.map(bet => [bet.id, betChecks.entries.get(bet.id)]));
   const run=++betChecks.run;
   betChecks.busy=true;updateBetCheckViews();
   try {
     await checkRegisteredBets(snapshot,{isCancelled:()=>run!==betChecks.run||!state.user,onResult:(id,entry)=>{
       if(run!==betChecks.run||!state.user)return;
       const current=state.bets.find(b=>b.id===id);
-      if(current&&betSignature(current)===entry.signature)betChecks.entries.set(id,entry);
+      if (current && betSignature(current) === entry.signature && betChecks.entries.get(id) === previousEntries.get(id)) {
+        storeBetCheck(current, entry);
+      }
       updateBetCheckViews();
     }});
   }finally{
