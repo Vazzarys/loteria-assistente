@@ -99,6 +99,7 @@ export async function refineIncremental(game, registered, original, pools, { che
   const reserve = new Set(original.map(key));
   const selected = new Set();
   const tickets = [];
+  const originalRows = [], alternativeRows = [];
 
   for (let slot = 0; slot < original.length; slot++) {
     reserve.delete(key(original[slot]));
@@ -122,6 +123,8 @@ export async function refineIncremental(game, registered, original, pools, { che
     tickets.push(best.ticket);
     addTicket(alternative, best.ticket, rules);
     addTicket(coverage, original[slot], rules);
+    originalRows.push(tierCounts(coverage.counts));
+    alternativeRows.push(tierCounts(alternative.counts));
     progress(slot + 1);
     await checkpoint();
   }
@@ -137,6 +140,7 @@ export async function refineIncremental(game, registered, original, pools, { che
       after: tierCounts(after),
       added: tierCounts(after.map((count, tier) => count - before[tier])),
       baseline: tierCounts(coverage.counts),
+      prefixes: improved ? alternativeRows : originalRows,
       improved,
     },
   };

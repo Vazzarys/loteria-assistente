@@ -1,8 +1,8 @@
 import { GAMES, choose, generateNumbers, validateNumbers } from './core.js';
-import { refineIncremental } from './incremental-coverage.js?v=0.6.9';
+import { refineIncremental } from './incremental-coverage.js?v=0.7.0';
 
-export const METHOD_VERSION = 'cobertura-exata-2-faixas';
-const LOTOMANIA_METHOD_VERSION = 'lotomania-cobertura-exata-2';
+export const METHOD_VERSION = 'cobertura-exata-2-faixas-busca';
+const LOTOMANIA_METHOD_VERSION = 'lotomania-cobertura-exata-2-busca';
 export const SIMPLE_PRICES = { megasena:600, megadavirada:600, lotofacil:350, quina:300, lotomania:300, duplasena:300 };
 export const PRICE_CHECKED = '2026-11-10';
 export const PRICE_SOURCES = Object.freeze({megasena:'Mega-Sena',megadavirada:'Mega-Sena',lotofacil:'Lotofacil',quina:'Quina',lotomania:'Lotomania',duplasena:'Dupla-Sena'});
@@ -142,7 +142,109 @@ export function portfolioCoverage(game, tickets) {
   }
   return coverage;
 }
-export async function generatePortfolio(game, count, { exclusions=[], candidateCount=32, nextTicket, signal, onProgress=()=>{} } = {}) {
+function lotomaniaTotals(masks) {
+  return { main: exactContainedUnion(masks, 20), near: exactOneMissUnion(masks, 100, 20) };
+}
+
+function betterCoverage(candidate, current) {
+  return candidate.main > current.main || (candidate.main === current.main && candidate.near > current.near);
+}
+
+async function refineLotomania(registered, original, pools, checkpoint) {
+  const existing = [...new Set(registered.map(numberMask))];
+  const before = lotomaniaTotals(existing);
+  const alternative = [...existing], baseline = [...existing];
+  const selected = new Set(alternative);
+  const reserved = new Set(original.map(numberMask));
+  const originalRows = [], alternativeRows = [], tickets = [];
+  for (let slot = 0; slot < original.length; slot++) {
+    const originalMask = numberMask(original[slot]);
+    reserved.delete(originalMask);
+    const candidates = [original[slot], ...pools[slot]];
+    for (const ticket of registered) {
+      const numbers = new Set(ticket);
+      candidates.push(Array.from({ length: 100 }, (_, i) => i).filter(n => !numbers.has(n)));
+    }
+
+    let best, bestScore;
+    const seen = new Set();
+    for (const ticket of candidates) {
+      const mask = numberMask(ticket);
+      if (selected.has(mask) || reserved.has(mask) || seen.has(mask)) continue;
+      seen.add(mask);
+      const masks = [...alternative, mask];
+      const main = exactContainedUnion(masks, 20);
+      if (!bestScore || main >= bestScore.main) {
+        const score = { main, near: exactOneMissUnion(masks, 100, 20) };
+        if (!bestScore || betterCoverage(score, bestScore)) {
+          best = { ticket, mask };
+          bestScore = score;
+        }
+      }
+      await checkpoint(false);
+    }
+    tickets.push(best.ticket);
+    selected.add(best.mask);
+    alternative.push(best.mask);
+    baseline.push(originalMask);
+    originalRows.push(lotomaniaTotals(baseline));
+    alternativeRows.push(bestScore);
+    await checkpoint(true, slot + 1);
+  }
+
+  const improved = betterCoverage(alternativeRows.at(-1), originalRows.at(-1));
+  const prefixes = improved ? alternativeRows : originalRows;
+  const after = prefixes.at(-1);
+  return {
+    tickets: improved ? tickets : original,
+    incremental: {
+      registeredCount: registered.length, total: choose(100, 20), before, after, prefixes,
+      added: { main: after.main - before.main, near: after.near - before.near },
+      baseline: originalRows.at(-1), improved,
+    },
+  };
+}
+
+function incrementalUpperBound(coverage, incremental) {
+  const cap = value => value > coverage.total ? coverage.total : value;
+  return {
+    main: cap(incremental.before.main + coverage.mainUpperBound),
+    near: cap(incremental.before.near + coverage.nearUpperBound),
+  };
+}
+
+export async function generatePortfolio(game, count, options = {}) {
+  const { exclusions = [], nextTicket, signal, onProgress } = options;
+  const registered = new Set(exclusions.map(numberMask)).size;
+  let best, evaluated = 0, attempts = 0;
+  const limit = nextTicket || count === 1 ? 1 : 3;
+  for (let attempt = 1; attempt <= limit; attempt++) {
+    checkAbort(signal);
+    const result = await generatePortfolioAttempt(game, count, {
+      ...options, onProgress: progress => onProgress?.({ ...progress, attempt }),
+    });
+    attempts++;
+    evaluated += result.candidatesEvaluated;
+    const score = result.incremental?.after ?? result.coverage;
+    if (!best || betterCoverage(score, best.incremental?.after ?? best.coverage)) best = result;
+    const upper = result.incremental
+      ? incrementalUpperBound(result.coverage, result.incremental)
+      : { main: result.coverage.mainUpperBound, near: result.coverage.nearUpperBound };
+    if (score.main === upper.main && score.near === upper.near) break;
+  }
+  const progress = [];
+  for (let i = 1; i <= best.tickets.length; i++) {
+    checkAbort(signal);
+    progress.push(i === best.tickets.length ? best.coverage : portfolioCoverage(game, best.tickets.slice(0, i)));
+  }
+  const incrementalUnavailable = game === 'lotomania' && registered > 0 && registered + count > 8;
+  const incremental = best.incremental && {
+    ...best.incremental, upper: incrementalUpperBound(best.coverage, best.incremental),
+  };
+  return { ...best, ...(incremental ? { incremental } : {}), candidatesEvaluated: evaluated, attempts, progress, incrementalUnavailable };
+}
+
+async function generatePortfolioAttempt(game, count, { exclusions=[], candidateCount=32, nextTicket, signal, onProgress=()=>{} }) {
   const g=GAMES[game];
   if(!g || !Number.isInteger(count) || count<1 || count>batchLimit(game) || !Number.isInteger(candidateCount) || candidateCount<1 || candidateCount>128 || exclusions.some(t=>!validateNumbers(game,t))) throw new Error('Parâmetros de geração inválidos.');
   const draw=nextTicket || (()=>generateNumbers(game,g.min));
@@ -161,7 +263,7 @@ export async function generatePortfolio(game, count, { exclusions=[], candidateC
     if(game==='lotomania' && tickets.length===1) { const first=new Set(tickets[0]);add(Array.from({length:100},(_,i)=>i).filter(n=>!first.has(n))); }
     for(let attempt=0;pool.length<candidateCount && attempt<candidateCount*20;attempt++) { checkAbort(signal);add(draw()); }
     if(!pool.length) throw new Error('Não foi possível obter uma combinação distinta. Tente gerar novamente.');
-    if (game !== 'lotomania') pools.push(pool);
+    pools.push(pool);
     let best=null,bestScore=-1n,bestOverlap=Infinity,bestOutcomes=null,bestNear=null;
     const selectedMasks = game === 'lotomania' ? [...selected] : [];
     for(const candidate of pool) {
@@ -199,9 +301,11 @@ export async function generatePortfolio(game, count, { exclusions=[], candidateC
   }
   checkAbort(signal);
   let chosenTickets = tickets, incremental = null;
-  if ((game === 'quina' || game === 'megasena') && exclusions.length) {
+  const canCompare = game !== 'lotomania' || new Set(exclusions.map(numberMask)).size + count <= 8;
+  if (exclusions.length && canCompare) {
     let lastYield = performance.now();
-    const checkpoint = async (force = true) => {
+    const checkpoint = async (force = true, step) => {
+      if (step !== undefined) onProgress({ done: step, total: count, phase: 'incremental' });
       checkAbort(signal);
       if (force || performance.now() - lastYield >= 12) {
         await yieldUI();
@@ -211,7 +315,9 @@ export async function generatePortfolio(game, count, { exclusions=[], candidateC
     };
     onProgress({ done: 0, total: count, phase: 'incremental' });
     await checkpoint();
-    const refined = await refineIncremental(game, exclusions, tickets, pools, {
+    const refined = game === 'lotomania'
+      ? await refineLotomania(exclusions, tickets, pools, checkpoint)
+      : await refineIncremental(game, exclusions, tickets, pools, {
       checkpoint,
       progress: done => onProgress({ done, total: count, phase: 'incremental' }),
     });

@@ -84,7 +84,7 @@ test('Lotomania: união dos 19 ou mais acertos soma eventos e desconta a interse
  assert.equal(result.near,2n*perTicket-32n*32n);
  assert.equal(result.nearUpperBound,2n*perTicket);
 });
-test('Lotomania desempata pela cobertura exata de 19 ou mais com o jogo espelho indisponível', async () => {
+test('Lotomania compara a cobertura conjunta com o jogo espelho registrado', async () => {
  const first = Array.from({length:50}, (_,i) => i);
  const mirror = Array.from({length:50}, (_,i) => i+50);
  const overlapping = Array.from({length:50}, (_,i) => i<18 ? i : i+32);
@@ -93,9 +93,11 @@ test('Lotomania desempata pela cobertura exata de 19 ou mais com o jogo espelho 
  const result = await generatePortfolio('lotomania',2,{
    exclusions:[mirror],candidateCount:2,nextTicket:()=>scripted.shift(),
  });
- assert.deepEqual(result.tickets,[first,disjointCoverage]);
- assert.equal(result.coverage.main,result.coverage.mainUpperBound);
- assert.equal(result.coverage.near,result.coverage.nearUpperBound);
+ assert.deepEqual(result.tickets,[first,overlapping]);
+ assert.equal(result.incremental.improved,true);
+ assert.equal(result.incremental.after.main,portfolioCoverage('lotomania',[mirror,first,overlapping]).main);
+ assert.equal(result.incremental.after.near,portfolioCoverage('lotomania',[mirror,first,overlapping]).near);
+ assert.ok(result.incremental.after.main>result.incremental.baseline.main);
 });
 test('retrospecto usa os últimos 20% e compara lotes do mesmo tamanho sem selecionar pelo histórico',async()=>{
  const history=JSON.parse(readFileSync(new URL('../data/history/megasena.json',import.meta.url),'utf8'));
@@ -184,4 +186,31 @@ test('Mega-Sena deduplica apostas ampliadas e mantém a cobertura exata combinad
  assert.deepEqual(result.incremental.before, { main, near });
  assert.deepEqual(result.incremental.after, { main: main + 1n, near: near + 325n });
  assert.equal(result.incremental.registeredCount, 3);
+});
+
+test('as seis modalidades publicam a evolução exata e a cobertura com os jogos registrados', async () => {
+ for (const [game, rules] of Object.entries(GAMES)) {
+   const registered = Array.from({length:rules.min}, (_, i) => rules.first + i);
+   const result = await generatePortfolio(game, 3, { exclusions:[registered], candidateCount:4 });
+   assert.equal(result.progress.length,3,game);
+   assert.deepEqual(result.progress.at(-1),result.coverage,game);
+   assert.deepEqual(result.incremental.prefixes.at(-1),result.incremental.after,game);
+   assert.ok(result.incremental.after.main<=result.incremental.upper.main,game);
+   assert.ok(result.incremental.after.near<=result.incremental.upper.near,game);
+   for (let i=1; i<=3; i++) {
+     const expected=portfolioCoverage(game,[registered,...result.tickets.slice(0,i)]);
+     assert.deepEqual(result.incremental.prefixes[i-1],{main:expected.main,near:expected.near},game);
+   }
+ }
+});
+
+test('Lotomania separa a análise do lote quando o total conjunto supera oito jogos distintos', async () => {
+ const registered = Array.from({length:8}, (_,i)=>Array.from({length:50}, (_,j)=>i+j));
+ const suggestion = Array.from({length:50}, (_,i)=>50+i);
+ const result = await generatePortfolio('lotomania',1,{
+   exclusions:registered,candidateCount:1,nextTicket:()=>suggestion,
+ });
+ assert.equal(result.incremental,undefined);
+ assert.equal(result.incrementalUnavailable,true);
+ assert.deepEqual(result.progress,[result.coverage]);
 });
