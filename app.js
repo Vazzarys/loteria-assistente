@@ -33,6 +33,11 @@ function applyTheme() {
   document.documentElement.dataset.theme = theme === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme;
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+let pageMotion;
+reducedMotion.addEventListener('change', () => {
+  if (reducedMotion.matches) pageMotion?.cancel();
+});
 function navigate(page) { if(page!=='suggestions' && suggestionState.busy)cancelSuggestions(false); state.page = page; state.filter = ''; render(); window.scrollTo({ top: 0 }); }
 function renderNavigation() {
   $('#navigation').innerHTML = navigation.map(([key, icon, title]) => `<button class="nav-item ${state.page === key ? 'active' : ''}" data-page="${key}" ${state.page === key ? 'aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">${icon}</span><span class="nav-label">${title}</span></button>`).join('');
@@ -41,10 +46,24 @@ function renderNavigation() {
 function render() {
   if (!state.user) return;
   renderNavigation();
-  if (!state.loaded) { $('#content').innerHTML = '<div class="loading" role="status">Carregando seus registros…</div>'; return; }
+  const content = $('#content');
+  if (!state.loaded) {
+    delete content.dataset.page;
+    content.innerHTML = '<div class="loading" role="status">Carregando seus registros…</div>';
+    return;
+  }
   const pages = { overview, builder, suggestions, favorites, bets, settings };
-  $('#content').innerHTML = pages[state.page]();
+  const pageChanged = content.dataset.page !== state.page;
+  content.dataset.page = state.page;
+  content.innerHTML = pages[state.page]();
   applyTheme();
+  if (pageChanged && !reducedMotion.matches && content.animate) {
+    pageMotion?.cancel();
+    pageMotion = content.animate(
+      [{ opacity: .86, transform: 'translateY(4px)' }, { opacity: 1, transform: 'translateY(0)' }],
+      { duration: 160, easing: 'ease-out' },
+    );
+  }
 }
 function financeValues(month) {
   const period = state.financePeriod;

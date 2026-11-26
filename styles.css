@@ -101,3 +101,91 @@ html[data-theme=dark]{--bg:#15211c;--surface:#1e2c25;--text:#e0eadf;--muted:#a0a
 .check-notice-rateio { border-left-color: #b48237; }
 .check-notice p { margin: 4px 0; font-size: 13px; }
 .check-notice small { color: var(--muted); }
+
+:root {
+  --card-shadow: 0 2px 5px #243f2b08, 0 8px 24px #243f2b06;
+  --focus-ring: #24795b;
+  --nav-surface: #143d32;
+  --control-tint: #edf3e9;
+}
+html[data-theme="dark"] {
+  --card-shadow: 0 2px 8px #050c0828;
+  --focus-ring: #a6dcac;
+  --nav-surface: #13382e;
+  --control-tint: #26382f;
+}
+.sidebar {
+  background: linear-gradient(165deg, #1b483b 0%, var(--nav-surface) 48%, #103229 100%);
+  border-right: 1px solid #ffffff0d;
+}
+.sidebar .brand { margin-bottom: clamp(34px, 7vh, 60px); }
+.sidebar .brand-symbol {
+  display: grid;
+  place-items: center;
+  width: 43px;
+  height: 43px;
+  border-radius: 13px;
+  background: #d1e6ac18;
+  font-size: 31px;
+}
+.nav-item { border-radius: 11px; }
+.nav-item.active { background: #d8ebb9; }
+.nav-item.active .nav-icon { color: #204f3b; }
+.nav-item:focus-visible, .logout:focus-visible { outline: 2px solid #d8ebb9; }
+.topbar {
+  padding-bottom: 19px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+.topbar h1 { font-size: clamp(25px, 3vw, 34px); line-height: 1.14; }
+.topbar-right .avatar {
+  background: var(--control-tint);
+  border: 1px solid var(--border);
+}
+.sync-status { color: var(--text); padding: 6px 9px; border-radius: 8px; background: var(--control-tint); }
+.finance-panel {
+  background: radial-gradient(ellipse at 93% 0%, #3a6a4f, transparent 66%), #15392f;
+  border: 1px solid #ffffff20;
+  box-shadow: 0 8px 28px #0e33262b;
+}
+.finance-metric { background: #0d2c256e; }
+.finance-track { height: 6px; }
+.panel, .stat, .game-card, .record {
+  border-radius: 15px;
+  box-shadow: var(--card-shadow);
+}
+.bet-group .record { box-shadow: none; }
+.game-card { border-top-width: 3px; }
+.game-dot { border-radius: 11px; }
+.primary, .secondary, .small-button { border-radius: 10px; }
+:where(button, input, select, textarea, summary):focus-visible { outline: 2px solid var(--focus-ring); }
+dialog { border-radius: 19px; }
+.login-story { background: linear-gradient(150deg, #1a4c3d, #11362c 70%); }
+
+@media (hover: hover) and (pointer: fine) {
+  .nav-item:not(.active):hover { background: #ffffff12; color: #f1f9ef; }
+  .game-card:hover { border-top-color: var(--game); border-bottom-color: var(--game); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .nav-item, .game-card { transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease; }
+  .number:active:not(:disabled), .icon-button:active:not(:disabled) { transform: scale(.96); }
+  dialog[open] { animation: dialog-appear 150ms ease-out; }
+  @keyframes dialog-appear {
+    from { opacity: .86; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+@media (max-width: 700px) {
+  .sidebar {
+    height: calc(68px + env(safe-area-inset-bottom, 0px));
+    padding: 4px 5px calc(4px + env(safe-area-inset-bottom, 0px));
+    border-right: 0;
+    border-top: 1px solid #ffffff24;
+  }
+  #navigation { gap: 2px; }
+  .nav-item { flex: 1 1 0; min-width: 0; border-radius: 9px; padding-inline: 2px; }
+  .nav-item.active { background: #d8ebb9; color: #204f3b; border-top: 0; }
+  main { padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px)); }
+  .topbar { padding-bottom: 13px; margin-bottom: 18px; }
+  .sync-status { padding: 5px 6px; }
+}
