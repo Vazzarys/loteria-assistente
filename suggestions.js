@@ -1,4 +1,4 @@
-import { GAMES, choose, generateNumbers, validateNumbers } from './core.js';
+import { GAMES, choose, generateNumbers, randomInt, validateNumbers } from './core.js';
 import { refineIncremental } from './incremental-coverage.js?v=0.7.0';
 
 export const METHOD_VERSION = 'cobertura-exata-2-faixas-busca';
@@ -213,8 +213,78 @@ function incrementalUpperBound(coverage, incremental) {
   };
 }
 
+// As 10 trincas contêm cada par de jogos duas vezes. Os 15 quartetos
+// contêm cada par seis vezes. Cada par de bilhetes compartilha 8 dezenas.
+const lotofacilTriples = [
+  [1, 2, 3], [1, 2, 4], [1, 3, 5], [1, 4, 6], [1, 5, 6],
+  [2, 3, 6], [2, 4, 5], [2, 5, 6], [3, 4, 5], [3, 4, 6],
+];
+const sixGames = [1, 2, 3, 4, 5, 6];
+const lotofacilColumns = lotofacilTriples.concat(sixGames.flatMap((a, index) =>
+  sixGames.slice(index + 1).map(b => sixGames.filter(game => game !== a && game !== b))));
+
+function balancedLotofacilTickets() {
+  const numbers = Array.from({ length: 25 }, (_, i) => i + 1);
+  for (let i = numbers.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [numbers[i], numbers[j]] = [numbers[j], numbers[i]];
+  }
+  return sixGames.map(game => numbers
+    .filter((_, i) => lotofacilColumns[i].includes(game))
+    .sort((a, b) => a - b));
+}
+
+async function generateBalancedLotofacil(exclusions, signal, onProgress) {
+  const registered = exclusions.map(ticket => new Set(ticket));
+  const maxAttempts = registered.length ? 32 : 1;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    checkAbort(signal);
+    const tickets = balancedLotofacilTickets();
+    // Dois eventos de 14+ só podem se cruzar se os jogos compartilharem
+    // pelo menos 13 dezenas. Vale também para apostas ampliadas.
+    const disjoint = tickets.every(ticket => registered.every(previous =>
+      ticket.filter(number => previous.has(number)).length <= 12));
+    if (disjoint) {
+      const progress = tickets.map((_, i) => portfolioCoverage('lotofacil', tickets.slice(0, i + 1)));
+      const coverage = progress.at(-1);
+      // Distância de 7 trocas entre jogos: nenhum resultado está a até 3
+      // trocas de dois jogos. Assim, somamos as vizinhanças sem sobreposição.
+      const tiers = [15, 14, 13, 12].map(hits => {
+        let perTicket = 0n;
+        for (let misses = 0; misses <= 15 - hits; misses++) {
+          perTicket += choose(15, misses) * choose(10, misses);
+        }
+        return { hits, covered: BigInt(tickets.length) * perTicket };
+      });
+      let incremental;
+      if (registered.length) {
+        const score = await refineIncremental('lotofacil', exclusions, tickets, tickets.map(() => []), {
+          checkpoint: async force => { checkAbort(signal); if (force !== false) await yieldUI(); },
+          progress: done => onProgress?.({ done, total: tickets.length, phase: 'incremental', attempt }),
+        });
+        incremental = { ...score.incremental, upper: incrementalUpperBound(coverage, score.incremental) };
+      }
+      checkAbort(signal);
+      return {
+        tickets, coverage, progress, tiers, method: 'lotofacil-seis-cobertura-maxima-12',
+        candidatesEvaluated: attempt, candidateCount: maxAttempts, attempts: attempt,
+        incrementalUnavailable: false, ...(incremental ? { incremental } : {}),
+      };
+    }
+    if (attempt % 8 === 0) await yieldUI();
+  }
+  checkAbort(signal);
+  return null;
+}
+
 export async function generatePortfolio(game, count, options = {}) {
-  const { exclusions = [], nextTicket, signal, onProgress } = options;
+  const { exclusions = [], candidateCount = 32, nextTicket, signal, onProgress } = options;
+  const g = GAMES[game];
+  if(!g || !Number.isInteger(count) || count<1 || count>batchLimit(game) || !Number.isInteger(candidateCount) || candidateCount<1 || candidateCount>128 || exclusions.some(t=>!validateNumbers(game,t))) throw new Error('Parâmetros de geração inválidos.');
+  if (game === 'lotofacil' && count === 6 && !nextTicket) {
+    const balanced = await generateBalancedLotofacil(exclusions, signal, onProgress);
+    if (balanced) return balanced;
+  }
   const registered = new Set(exclusions.map(numberMask)).size;
   let best, evaluated = 0, attempts = 0;
   const limit = nextTicket || count === 1 ? 1 : 3;
@@ -246,7 +316,6 @@ export async function generatePortfolio(game, count, options = {}) {
 
 async function generatePortfolioAttempt(game, count, { exclusions=[], candidateCount=32, nextTicket, signal, onProgress=()=>{} }) {
   const g=GAMES[game];
-  if(!g || !Number.isInteger(count) || count<1 || count>batchLimit(game) || !Number.isInteger(candidateCount) || candidateCount<1 || candidateCount>128 || exclusions.some(t=>!validateNumbers(game,t))) throw new Error('Parâmetros de geração inválidos.');
   const draw=nextTicket || (()=>generateNumbers(game,g.min));
   const tickets=[], selected=new Set(), near=new Set(), uses=new Map(), pools=[];
   let terms=[], candidatesEvaluated=0;

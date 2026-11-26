@@ -214,3 +214,29 @@ test('Lotomania separa a análise do lote quando o total conjunto supera oito jo
  assert.equal(result.incrementalUnavailable,true);
  assert.deepEqual(result.progress,[result.coverage]);
 });
+
+test('seis jogos da Lotofácil atingem o teto de 12 a 15 acertos sem sobreposição', async () => {
+  const generated = await generatePortfolio('lotofacil', 6);
+  assert.equal(generated.tickets.length, 6);
+  for (const ticket of generated.tickets) assert.equal(ticket.length, 15);
+  for (const [a, b] of combinations(generated.tickets, 2)) {
+    assert.equal(a.filter(number => b.includes(number)).length, 8);
+  }
+  assert.equal(generated.coverage.total, 3268760n);
+  assert.deepEqual(generated.tiers.map(tier => [tier.hits, tier.covered]), [
+    [15, 6n], [14, 906n], [13, 29256n], [12, 356856n],
+  ]);
+  assert.equal(generated.progress.length, 6);
+});
+
+test('seis jogos da Lotofácil respeitam apostas existentes e reportam a cobertura conjunta', async () => {
+  const registered = Array.from({ length: 15 }, (_, i) => i + 1);
+  const generated = await generatePortfolio('lotofacil', 6, { exclusions: [registered] });
+  const { tickets, incremental } = generated;
+  assert.equal(incremental.registeredCount, 1);
+  assert.equal(incremental.added.main, 6n);
+  assert.ok(tickets.every(ticket => numberMask(ticket) !== numberMask(registered)));
+  const combined = portfolioCoverage('lotofacil', [registered, ...tickets]);
+  assert.equal(incremental.after.near, combined.near);
+  if (generated.tiers) assert.equal(incremental.added.near, 906n);
+});
